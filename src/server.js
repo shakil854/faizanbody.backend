@@ -1,13 +1,17 @@
 import app from './app.js';
 import { config } from './config/env.js';
 import { connectDB } from './config/db.js';
+import { syncDatabase } from './config/syncDatabase.js';
 
 const startServer = async () => {
   try {
-    // 1. Connect to Database (if applicable)
+    // 1. Connect to MySQL Database
     await connectDB();
 
-    // 2. Start Express Server
+    // 2. Auto Sync & Safe Alter Tables (No data loss on adding new fields)
+    await syncDatabase({ alter: true });
+
+    // 3. Start Express Server
     const server = app.listen(config.port, () => {
       console.log(`\n==================================================`);
       console.log(`🚀 FaizanBody Backend is live!`);

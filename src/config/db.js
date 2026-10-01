@@ -41,29 +41,6 @@ export const connectDB = async () => {
     // 2. Test pool connection
     const connection = await pool.getConnection();
 
-    // 3. Auto-create sample table if not exists
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS vehicle_models (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(150) NOT NULL,
-        category VARCHAR(100) NOT NULL,
-        status VARCHAR(50) DEFAULT 'Active',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Check if table has data, if empty, seed demo data
-    const [existing] = await connection.query('SELECT COUNT(*) as count FROM vehicle_models');
-    if (existing[0]?.count === 0) {
-      await connection.query(`
-        INSERT INTO vehicle_models (name, category, status) VALUES
-        ('Truck Body Model Alpha', 'Heavy Duty', 'Active'),
-        ('Tipper Body Model X', 'Tipper', 'Active'),
-        ('Container Body Spec-Z', 'Container', 'Pending Review')
-      `);
-      console.log('🌱 Initial sample data seeded into vehicle_models table');
-    }
-
     console.log(`\n==================================================`);
     console.log(`✅ MySQL Connected Successfully!`);
     console.log(`📦 Database: ${config.db.database}`);

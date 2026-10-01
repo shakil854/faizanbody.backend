@@ -1,0 +1,200 @@
+import db from '../config/db.js';
+
+/**
+ * In-memory fallback dataset for when MySQL is offline
+ */
+let memoryWorkers = [
+  {
+    id: 1,
+    name: 'Mohammad Faizan',
+    coming_date: '2025-01-10',
+    going_date: null,
+    created_at: new Date('2025-01-10').toISOString(),
+    updated_at: new Date('2025-01-10').toISOString(),
+  },
+  {
+    id: 2,
+    name: 'Rashid Ahmed',
+    coming_date: '2025-02-01',
+    going_date: null,
+    created_at: new Date('2025-02-01').toISOString(),
+    updated_at: new Date('2025-02-01').toISOString(),
+  },
+  {
+    id: 3,
+    name: 'Ramesh Sharma',
+    coming_date: '2024-10-15',
+    going_date: '2025-03-15',
+    created_at: new Date('2024-10-15').toISOString(),
+    updated_at: new Date('2025-03-15').toISOString(),
+  },
+];
+let nextId = 4;
+
+function formatDate(val) {
+  if (!val) return null;
+  if (typeof val === 'string') return val.split('T')[0];
+  if (val instanceof Date) {
+    const yyyy = val.getFullYear();
+    const mm = String(val.getMonth() + 1).padStart(2, '0');
+    const dd = String(val.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return val;
+}
+
+class WorkerService {
+  async getAllWorkers({ search = '', status = 'all' } = {}) {
+    try {
+      let sql = 'SELECT id, name, coming_date, going_date, created_at, updated_at FROM workers';
+      const conditions = [];
+      const params = [];
+
+      if (search && search.trim()) {
+        conditions.push('name LIKE ?');
+        params.push(`%${search.trim()}%`);
+      }
+
+      if (status === 'active') {
+        conditions.push('(going_date IS NULL OR going_date = "")');
+      } else if (status === 'relieved') {
+        conditions.push('(going_date IS NOT NULL AND going_date != "")');
+      }
+
+      if (conditions.length > 0) {
+        sql += ` WHERE ${conditions.join(' AND ')}`;
+      }
+
+      sql += ' ORDER BY coming_date DESC, id DESC';
+
+      const [rows] = await db.query(sql, params);
+      return rows.map((w) => ({
+        ...w,
+        coming_date: formatDate(w.coming_date),
+        going_date: formatDate(w.going_date),
+        status: w.going_date ? 'relieved' : 'active',
+      }));
+    } catch (error) {
+      console.warn('⚠️ [WorkerService DB Warning - Using Memory Store]:', error.message);
+      let list = [...memoryWorkers];
+
+      if (search && search.trim()) {
+        const query = search.trim().toLowerCase();
+        list = list.filter((w) => w.name.toLowerCase().includes(query));
+      }
+
+      if (status === 'active') {
+        list = list.filter((w) => !w.going_date);
+      } else if (status === 'relieved') {
+        list = list.filter((w) => !!w.going_date);
+      }
+
+      list.sort((a, b) => new Date(b.coming_date) - new Date(a.coming_date));
+
+      return list.map((w) => ({
+        ...w,
+        coming_date: formatDate(w.coming_date),
+        going_date: formatDate(w.going_date),
+        status: w.going_date ? 'relieved' : 'active',
+      }));
+    }
+  }
+
+  async getWorkerById(id) {
+    const numId = Number(id);
+    try {
+      const [rows] = await db.query('SELECT * FROM workers WHERE id = ?', [numId]);
+      if (rows && rows.length > 0) {
+        const w = rows[0];
+        return {
+          ...w,
+          coming_date: formatDate(w.coming_date),
+          going_date: formatDate(w.going_date),
+          status: w.going_date ? 'relieved' : 'active',
+        };
+      }
+      return null;
+    } catch (error) {
+      const w = memoryWorkers.find((item) => item.id === numId);
+      if (!w) return null;
+      return {
+        ...w,
+        coming_date: formatDate(w.coming_date),
+        going_date: formatDate(w.going_date),
+        status: w.going_date ? 'relieved' : 'active',
+      };
+    }
+  }
+
+  async createWorker({ name, coming_date, going_date = null }) {
+    const sanitizedName = name.trim();
+    const formattedComingDate = formatDate(coming_date);
+    const formattedGoingDate = going_date ? formatDate(going_date) : null;
+
+    try {
+      const [result] = await db.query(
+        'INSERT INTO workers (name, coming_date, going_date) VALUES (?, ?, ?)',
+        [sanitizedName, formattedComingDate, formattedGoingDate]
+      );
+      const insertId = result.insertId;
+      return await this.getWorkerById(insertId);
+    } catch (error) {
+      console.warn('⚠️ [WorkerService DB Warning - Using Memory Store]:', error.message);
+      const newWorker = {
+        id: nextId++,
+        name: sanitizedName,
+        coming_date: formattedComingDate,
+        going_date: formattedGoingDate,
+        status: formattedGoingDate ? 'relieved' : 'active',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      memoryWorkers.push(newWorker);
+      return newWorker;
+    }
+  }
+
+  async updateWorker(id, { name, coming_date, going_date = null }) {
+    const numId = Number(id);
+    const sanitizedName = name.trim();
+    const formattedComingDate = formatDate(coming_date);
+    const formattedGoingDate = going_date ? formatDate(going_date) : null;
+
+    try {
+      await db.query(
+        'UPDATE workers SET name = ?, coming_date = ?, going_date = ? WHERE id = ?',
+        [sanitizedName, formattedComingDate, formattedGoingDate, numId]
+      );
+      return await this.getWorkerById(numId);
+    } catch (error) {
+      console.warn('⚠️ [WorkerService DB Warning - Using Memory Store]:', error.message);
+      const index = memoryWorkers.findIndex((item) => item.id === numId);
+      if (index === -1) return null;
+
+      memoryWorkers[index] = {
+        ...memoryWorkers[index],
+        name: sanitizedName,
+        coming_date: formattedComingDate,
+        going_date: formattedGoingDate,
+        status: formattedGoingDate ? 'relieved' : 'active',
+        updated_at: new Date().toISOString(),
+      };
+      return memoryWorkers[index];
+    }
+  }
+
+  async deleteWorker(id) {
+    const numId = Number(id);
+    try {
+      const [result] = await db.query('DELETE FROM workers WHERE id = ?', [numId]);
+      return result.affectedRows > 0;
+    } catch (error) {
+      console.warn('⚠️ [WorkerService DB Warning - Using Memory Store]:', error.message);
+      const initialLen = memoryWorkers.length;
+      memoryWorkers = memoryWorkers.filter((item) => item.id !== numId);
+      return memoryWorkers.length < initialLen;
+    }
+  }
+}
+
+export const workerService = new WorkerService();
