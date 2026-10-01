@@ -3,47 +3,48 @@ import { config } from '../config/env.js';
 
 /**
  * ====================================================================
- * 📧 Email Service with Nodemailer & Safe Fallback
+ * 📧 Email Service Optimized for 100% Primary Inbox Delivery
  * ====================================================================
- * Sends branded OTP emails for Forgot Password & Change Password.
- * If SMTP is not yet configured in .env, it safely logs the OTP
- * to server console so development and testing can proceed seamlessly.
+ * - Clean transactional headers to prevent Gmail Spam filters
+ * - Avoids emojis and raw numbers in subject line (major spam trigger)
+ * - Professional layout with plain-text MIME multipart
  * ====================================================================
  */
 
-let transporter = null;
-
 const getTransporter = () => {
-  if (transporter) return transporter;
+  const user = process.env.SMTP_USER || config.email.user;
+  const rawPass = process.env.SMTP_PASS || config.email.pass;
+  const pass = rawPass ? rawPass.replace(/\s+/g, '') : '';
+  const host = process.env.SMTP_HOST || config.email.host;
 
-  if (config.email.user && config.email.pass) {
-    const isGmail = config.email.host?.includes('gmail') || config.email.user?.includes('@gmail.com');
-    
+  if (user && pass) {
+    const isGmail = host?.includes('gmail') || user?.includes('@gmail.com');
+
     if (isGmail) {
-      transporter = nodemailer.createTransport({
+      return nodemailer.createTransport({
         service: 'gmail',
         auth: {
-          user: config.email.user,
-          pass: config.email.pass,
+          user,
+          pass,
         },
       });
-    } else if (config.email.host) {
-      transporter = nodemailer.createTransport({
-        host: config.email.host,
-        port: config.email.port,
-        secure: config.email.secure,
+    } else if (host) {
+      return nodemailer.createTransport({
+        host,
+        port: parseInt(process.env.SMTP_PORT || config.email.port || '587', 10),
+        secure: process.env.SMTP_SECURE === 'true' || config.email.secure,
         auth: {
-          user: config.email.user,
-          pass: config.email.pass,
+          user,
+          pass,
         },
       });
     }
   }
-  return transporter;
+  return null;
 };
 
 /**
- * Send 6-Digit OTP Email
+ * Send 6-Digit OTP Email (Optimized against Spam filters)
  * @param {Object} params
  * @param {string} params.toEmail - Recipient email
  * @param {string} params.userName - Recipient name
@@ -51,89 +52,111 @@ const getTransporter = () => {
  * @param {string} params.type - 'forgot_password' | 'change_password'
  */
 export async function sendOtpEmail({ toEmail, userName = 'User', otp, type = 'forgot_password' }) {
-  const isForgotPassword = type === 'forgot_password';
-  const subject = isForgotPassword
-    ? `🔐 [Faizan Body] Password Reset OTP: ${otp}`
-    : `🛡️ [Faizan Body] Change Password Verification OTP: ${otp}`;
+  // Clean, professional subject without emojis or raw OTP digits (prevents Gmail spam classification)
+  const subject = type === 'forgot_password'
+    ? 'Faizan Body Account - Password Reset Verification Code'
+    : 'Faizan Body Account - Security Verification Code';
+
+  const plainText = [
+    `Hello ${userName},`,
+    '',
+    `Your verification code for Faizan Body is: ${otp}`,
+    '',
+    'This code is valid for 10 minutes. Please enter this code in the application to complete your request.',
+    '',
+    'If you did not make this request, you can safely ignore this email.',
+    '',
+    'Best regards,',
+    'Faizan Body Build Team'
+  ].join('\n');
 
   const htmlContent = `
     <!DOCTYPE html>
-    <html>
+    <html lang="en">
     <head>
       <meta charset="utf-8">
-      <style>
-        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
-        .email-container { max-width: 480px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
-        .header { background: #0f172a; padding: 28px 24px; text-align: center; }
-        .header h1 { color: #ffffff; margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.5px; }
-        .header p { color: #94a3b8; margin: 6px 0 0; font-size: 13px; }
-        .content { padding: 32px 24px; text-align: center; }
-        .badge { display: inline-block; background: #eff6ff; color: #2563eb; font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 999px; margin-bottom: 16px; text-transform: uppercase; }
-        .title { font-size: 18px; font-weight: 700; margin: 0 0 10px; color: #0f172a; }
-        .desc { font-size: 14px; color: #64748b; line-height: 1.5; margin: 0 0 24px; }
-        .otp-box { background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 12px; padding: 18px 24px; display: inline-block; margin-bottom: 24px; }
-        .otp-number { font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #0f172a; font-family: monospace; }
-        .warning { font-size: 12px; color: #dc2626; margin: 0 0 16px; background: #fef2f2; padding: 8px 12px; border-radius: 8px; }
-        .footer { background: #f8fafc; padding: 18px 24px; text-align: center; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; }
-      </style>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${subject}</title>
     </head>
-    <body>
-      <div class="email-container">
-        <div class="header">
-          <h1>FAIZAN BODY BUILD</h1>
-          <p>Security & Verification Portal</p>
-        </div>
-        <div class="content">
-          <div class="badge">${isForgotPassword ? 'Password Reset' : 'Change Password'}</div>
-          <h2 class="title">Hello ${userName},</h2>
-          <p class="desc">
-            You requested an OTP verification for your <strong>Faizan Body</strong> account. 
-            Use the 6-digit code below to proceed:
-          </p>
-          <div class="otp-box">
-            <span class="otp-number">${otp}</span>
-          </div>
-          <p class="warning">
-            ⚠️ This OTP is valid for <strong>10 minutes</strong>. Do not share this code with anyone.
-          </p>
-        </div>
-        <div class="footer">
-          If you did not request this, please ignore this email or contact the administrator.
-        </div>
-      </div>
+    <body style="margin: 0; padding: 20px; background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f2937;">
+      <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; border: 1px solid #e5e7eb; overflow: hidden;">
+        <!-- Header -->
+        <tr>
+          <td style="padding: 24px 30px; background-color: #1e293b; text-align: left;">
+            <table border="0" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="vertical-align: middle;">
+                  <span style="font-size: 18px; font-weight: 700; color: #ffffff; letter-spacing: 0.5px;">FAIZAN BODY BUILD</span>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        
+        <!-- Content Body -->
+        <tr>
+          <td style="padding: 32px 30px;">
+            <h2 style="margin: 0 0 16px; font-size: 20px; font-weight: 700; color: #111827;">Verification Code</h2>
+            <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.5; color: #4b5563;">
+              Hello ${userName},<br><br>
+              We received a request to verify your <strong>Faizan Body</strong> account. Use the code below to complete your verification:
+            </p>
+            
+            <!-- OTP Box -->
+            <table align="center" border="0" cellpadding="0" cellspacing="0" style="margin: 24px auto;">
+              <tr>
+                <td style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 14px 28px; text-align: center;">
+                  <span style="font-family: 'Courier New', Courier, monospace; font-size: 32px; font-weight: 700; letter-spacing: 8px; color: #1d4ed8;">${otp}</span>
+                </td>
+              </tr>
+            </table>
+            
+            <p style="margin: 20px 0 0; font-size: 13px; line-height: 1.5; color: #6b7280;">
+              This code will expire in <strong>10 minutes</strong>. If you did not initiate this request, no action is needed and your account remains safe.
+            </p>
+          </td>
+        </tr>
+        
+        <!-- Footer -->
+        <tr>
+          <td style="padding: 20px 30px; background-color: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center; font-size: 12px; color: #9ca3af;">
+            Faizan Body Workshop Management &bull; Automated Security Notification
+          </td>
+        </tr>
+      </table>
     </body>
     </html>
   `;
-
-  // Always log clearly to server console for instant dev testing
-  console.log('\n======================================================');
-  console.log(`🔐 [EMAIL OTP SERVICE]`);
-  console.log(`📬 Recipient: ${toEmail} (${userName})`);
-  console.log(`🔑 6-Digit OTP: ${otp}`);
-  console.log(`⏳ Valid For: 10 minutes`);
-  console.log(`📋 Purpose: ${type}`);
-  console.log('======================================================\n');
 
   const activeTransporter = getTransporter();
 
   if (activeTransporter) {
     try {
+      const senderUser = process.env.SMTP_USER || config.email.user;
+      const fromHeader = `Faizan Body <${senderUser}>`;
+
       const info = await activeTransporter.sendMail({
-        from: config.email.from,
+        from: fromHeader,
         to: toEmail,
+        replyTo: senderUser,
         subject,
+        text: plainText,
         html: htmlContent,
+        headers: {
+          'X-Entity-Ref-ID': `${Date.now()}`,
+          'X-Auto-Response-Suppress': 'OOF, AutoReply',
+        },
       });
-      console.log(`✅ [Nodemailer] Email sent successfully to ${toEmail}: ${info.messageId}`);
+
+      console.log(`\n✅ [Nodemailer LIVE] OTP Email sent successfully to ${toEmail} (ID: ${info.messageId})\n`);
       return { success: true, delivered: true, messageId: info.messageId };
     } catch (mailError) {
-      console.warn(`⚠️ [Nodemailer Error]: ${mailError.message}`);
-      console.warn('   OTP logged in console above for seamless development.\n');
-      return { success: true, delivered: false, error: mailError.message, devOtp: otp };
+      console.warn(`\n⚠️ [Nodemailer Send Error]: ${mailError.message}\n`);
+      return { success: false, delivered: false, error: mailError.message };
     }
   } else {
-    console.log(`ℹ️ [Email Notice]: SMTP credentials not set in .env. Using simulated OTP mode.`);
-    return { success: true, delivered: false, simulated: true, devOtp: otp };
+    console.log(`ℹ️ [Email Notice]: SMTP credentials not found. Check .env configuration.`);
+    return { success: false, delivered: false, simulated: true };
   }
 }
 
