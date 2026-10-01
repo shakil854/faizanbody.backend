@@ -20,4 +20,20 @@ export const config = {
     waitForConnections: true,
     queueLimit: 0,
   },
+
+  // JWT Authentication Configuration
+  jwt: {
+    secret: process.env.JWT_SECRET || 'faizanbody_super_secret_jwt_key_2026',
+    expiresIn: process.env.JWT_EXPIRES_IN || '7d',
+  },
+
+  // SMTP Email Configuration for OTP Delivery
+  email: {
+    host: process.env.SMTP_HOST || '',
+    port: parseInt(process.env.SMTP_PORT || '587', 10),
+    secure: process.env.SMTP_SECURE === 'true',
+    user: process.env.SMTP_USER || 'syncrobytetech@gmail.com',
+    pass: process.env.SMTP_PASS || 'jout doab oauq srhs',
+    from: process.env.SMTP_FROM || 'Faizan Body Build <noreply@faizanbody.com>',
+  },
 };

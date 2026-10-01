@@ -72,6 +72,25 @@ export async function syncDatabase({ alter = true } = {}) {
         if (addedColumnsCount === 0) {
           console.log(`✓ [DB Sync] Table "${tableName}" schema is up-to-date`);
         }
+
+        // If table exists but is empty and has initialSeed, populate it
+        if (initialSeed && initialSeed.length > 0) {
+          const [countRows] = await connection.query(`SELECT COUNT(*) as count FROM \`${tableName}\``);
+          if (countRows[0]?.count === 0) {
+            for (const item of initialSeed) {
+              const keys = Object.keys(item);
+              const values = Object.values(item);
+              const placeholders = keys.map(() => '?').join(', ');
+              const colList = keys.map((k) => `\`${k}\``).join(', ');
+
+              await connection.query(
+                `INSERT INTO \`${tableName}\` (${colList}) VALUES (${placeholders})`,
+                values
+              );
+            }
+            console.log(`🌱 [DB Sync] Seeded ${initialSeed.length} initial records into empty "${tableName}"`);
+          }
+        }
       }
 
       // 2. Safe Index Creation for Blazing Fast Queries
