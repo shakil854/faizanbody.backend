@@ -3,12 +3,12 @@ import { models } from '../models/index.js';
 
 /**
  * ====================================================================
- * 🔄 Safe Database Sync with Automatic Alter (Data-Loss Prevention)
+ * 🔄 Safe Database Sync with Automatic Alter & Indexing
  * ====================================================================
  * - Automatically checks each model registered in models/index.js.
  * - Creates table if it does not exist.
- * - If table already exists and a developer/user adds a new field to a model,
- *   it dynamically runs ALTER TABLE ADD COLUMN without dropping or resetting data.
+ * - Adds missing columns dynamically via ALTER TABLE ADD COLUMN.
+ * - Adds database indexes for ultra-fast queries with thousands of entries.
  * - 100% Zero Data Loss guaranteed.
  * ====================================================================
  */
@@ -16,10 +16,10 @@ export async function syncDatabase({ alter = true } = {}) {
   try {
     const connection = await db.getConnection();
 
-    console.log('🔄 Checking database tables and running safe alter-sync...');
+    console.log('🔄 Checking database tables and running safe alter-sync & index optimization...');
 
     for (const model of models) {
-      const { tableName, columns, initialSeed } = model;
+      const { tableName, columns, indexes, initialSeed } = model;
 
       // 1. Check if table exists
       const [tableRows] = await connection.query(`SHOW TABLES LIKE ?`, [tableName]);
@@ -58,11 +58,8 @@ export async function syncDatabase({ alter = true } = {}) {
         let addedColumnsCount = 0;
 
         for (const [colName, colDef] of Object.entries(columns)) {
-          // If the defined column is NOT in the database table yet, safely add it!
           if (!existingColNames.includes(colName.toLowerCase())) {
-            // Note: If colDef has PRIMARY KEY or AUTO_INCREMENT, ensure it's handled safely
             const safeColDef = colDef.replace(/PRIMARY KEY/gi, '').trim();
-
             const alterSql = `ALTER TABLE \`${tableName}\` ADD COLUMN \`${colName}\` ${safeColDef}`;
             await connection.query(alterSql);
             console.log(
@@ -76,10 +73,29 @@ export async function syncDatabase({ alter = true } = {}) {
           console.log(`✓ [DB Sync] Table "${tableName}" schema is up-to-date`);
         }
       }
+
+      // 2. Safe Index Creation for Blazing Fast Queries
+      if (indexes && indexes.length > 0) {
+        try {
+          const [existingIndexes] = await connection.query(`SHOW INDEX FROM \`${tableName}\``);
+          const indexNames = existingIndexes.map((idx) => idx.Key_name.toLowerCase());
+
+          for (const idx of indexes) {
+            if (!indexNames.includes(idx.name.toLowerCase())) {
+              await connection.query(
+                `CREATE INDEX \`${idx.name}\` ON \`${tableName}\` (\`${idx.column}\`)`
+              );
+              console.log(`⚡ [DB Index] Created performance index "${idx.name}" on "${tableName}"`);
+            }
+          }
+        } catch (idxErr) {
+          console.warn(`[Index notice]: ${idxErr.message}`);
+        }
+      }
     }
 
     connection.release();
-    console.log('✅ All tables synchronized successfully with alter-sync!\n');
+    console.log('✅ All tables synchronized & indexed successfully for high performance!\n');
     return true;
   } catch (error) {
     console.warn(`⚠️ [DB Sync Notice]: ${error.message}`);

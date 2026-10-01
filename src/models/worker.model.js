@@ -14,6 +14,11 @@ export const WorkerModel = {
     created_at: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
     updated_at: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
   },
+  indexes: [
+    { name: 'idx_workers_name', column: 'name' },
+    { name: 'idx_workers_coming', column: 'coming_date' },
+    { name: 'idx_workers_going', column: 'going_date' },
+  ],
   initialSeed: [
     { name: 'Mohammad Faizan', coming_date: '2025-01-10', going_date: null },
     { name: 'Rashid Ahmed', coming_date: '2025-02-01', going_date: null },

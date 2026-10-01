@@ -31,6 +31,16 @@ let memoryWorkers = [
 ];
 let nextId = 4;
 
+// High-speed short-term query cache for instant responses
+let queryCache = null;
+let cacheTime = 0;
+const CACHE_TTL_MS = 3000; // 3 seconds burst cache for sub-millisecond responses
+
+function invalidateCache() {
+  queryCache = null;
+  cacheTime = 0;
+}
+
 function formatDate(val) {
   if (!val) return null;
   if (typeof val === 'string') return val.split('T')[0];
@@ -45,8 +55,15 @@ function formatDate(val) {
 
 class WorkerService {
   async getAllWorkers({ search = '', status = 'all' } = {}) {
+    const isDefaultQuery = !search && status === 'all';
+
+    // Serve from ultra-fast burst memory cache if available
+    if (isDefaultQuery && queryCache && Date.now() - cacheTime < CACHE_TTL_MS) {
+      return queryCache;
+    }
+
     try {
-      let sql = 'SELECT id, name, coming_date, going_date, created_at, updated_at FROM workers';
+      let sql = 'SELECT id, name, coming_date, going_date FROM workers';
       const conditions = [];
       const params = [];
 
@@ -68,12 +85,20 @@ class WorkerService {
       sql += ' ORDER BY coming_date DESC, id DESC';
 
       const [rows] = await db.query(sql, params);
-      return rows.map((w) => ({
-        ...w,
+      const result = rows.map((w) => ({
+        id: w.id,
+        name: w.name,
         coming_date: formatDate(w.coming_date),
         going_date: formatDate(w.going_date),
         status: w.going_date ? 'relieved' : 'active',
       }));
+
+      if (isDefaultQuery) {
+        queryCache = result;
+        cacheTime = Date.now();
+      }
+
+      return result;
     } catch (error) {
       console.warn('⚠️ [WorkerService DB Warning - Using Memory Store]:', error.message);
       let list = [...memoryWorkers];
@@ -91,23 +116,32 @@ class WorkerService {
 
       list.sort((a, b) => new Date(b.coming_date) - new Date(a.coming_date));
 
-      return list.map((w) => ({
-        ...w,
+      const result = list.map((w) => ({
+        id: w.id,
+        name: w.name,
         coming_date: formatDate(w.coming_date),
         going_date: formatDate(w.going_date),
         status: w.going_date ? 'relieved' : 'active',
       }));
+
+      if (isDefaultQuery) {
+        queryCache = result;
+        cacheTime = Date.now();
+      }
+
+      return result;
     }
   }
 
   async getWorkerById(id) {
     const numId = Number(id);
     try {
-      const [rows] = await db.query('SELECT * FROM workers WHERE id = ?', [numId]);
+      const [rows] = await db.query('SELECT id, name, coming_date, going_date FROM workers WHERE id = ?', [numId]);
       if (rows && rows.length > 0) {
         const w = rows[0];
         return {
-          ...w,
+          id: w.id,
+          name: w.name,
           coming_date: formatDate(w.coming_date),
           going_date: formatDate(w.going_date),
           status: w.going_date ? 'relieved' : 'active',
@@ -118,7 +152,8 @@ class WorkerService {
       const w = memoryWorkers.find((item) => item.id === numId);
       if (!w) return null;
       return {
-        ...w,
+        id: w.id,
+        name: w.name,
         coming_date: formatDate(w.coming_date),
         going_date: formatDate(w.going_date),
         status: w.going_date ? 'relieved' : 'active',
@@ -131,13 +166,21 @@ class WorkerService {
     const formattedComingDate = formatDate(coming_date);
     const formattedGoingDate = going_date ? formatDate(going_date) : null;
 
+    invalidateCache();
+
     try {
       const [result] = await db.query(
         'INSERT INTO workers (name, coming_date, going_date) VALUES (?, ?, ?)',
         [sanitizedName, formattedComingDate, formattedGoingDate]
       );
       const insertId = result.insertId;
-      return await this.getWorkerById(insertId);
+      return {
+        id: insertId,
+        name: sanitizedName,
+        coming_date: formattedComingDate,
+        going_date: formattedGoingDate,
+        status: formattedGoingDate ? 'relieved' : 'active',
+      };
     } catch (error) {
       console.warn('⚠️ [WorkerService DB Warning - Using Memory Store]:', error.message);
       const newWorker = {
@@ -160,12 +203,20 @@ class WorkerService {
     const formattedComingDate = formatDate(coming_date);
     const formattedGoingDate = going_date ? formatDate(going_date) : null;
 
+    invalidateCache();
+
     try {
       await db.query(
         'UPDATE workers SET name = ?, coming_date = ?, going_date = ? WHERE id = ?',
         [sanitizedName, formattedComingDate, formattedGoingDate, numId]
       );
-      return await this.getWorkerById(numId);
+      return {
+        id: numId,
+        name: sanitizedName,
+        coming_date: formattedComingDate,
+        going_date: formattedGoingDate,
+        status: formattedGoingDate ? 'relieved' : 'active',
+      };
     } catch (error) {
       console.warn('⚠️ [WorkerService DB Warning - Using Memory Store]:', error.message);
       const index = memoryWorkers.findIndex((item) => item.id === numId);
@@ -185,6 +236,8 @@ class WorkerService {
 
   async deleteWorker(id) {
     const numId = Number(id);
+    invalidateCache();
+
     try {
       const [result] = await db.query('DELETE FROM workers WHERE id = ?', [numId]);
       return result.affectedRows > 0;
