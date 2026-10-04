@@ -1,4 +1,5 @@
 import db from '../config/db.js';
+import { r2Service } from './r2.service.js';
 
 /**
  * Format date to YYYY-MM-DD string
@@ -58,6 +59,7 @@ function formatOrderRow(row) {
     md_signature: row.md_signature || '',
     party_owner_signature: row.party_owner_signature || '',
     notes: row.notes || '',
+    photos: safeParseJson(row.photos, []),
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -141,6 +143,7 @@ let memoryOrders = [
     md_signature: 'Faizan',
     party_owner_signature: 'Iqbal Bhai',
     notes: 'Urgent delivery required by month end.',
+    photos: [],
     created_at: new Date('2025-02-15').toISOString(),
     updated_at: new Date('2025-02-15').toISOString(),
   },
@@ -232,6 +235,7 @@ class OrderService {
       }
     );
     const machroJson = JSON.stringify(data.machro || { boxes: ['', '', ''], items: {} });
+    const photosJson = JSON.stringify(data.photos || []);
 
     try {
       const [result] = await db.query(
@@ -239,8 +243,8 @@ class OrderService {
           order_no, order_date, condition_text, owner_name, mobile_number,
           entry_date, truck_chassis_no, shade_no, status,
           cabin_work, inside_work, body_work, accessories, finishing_work, machro,
-          md_signature, party_owner_signature, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          md_signature, party_owner_signature, notes, photos
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           orderNo,
           formattedOrderDate,
@@ -260,6 +264,7 @@ class OrderService {
           data.md_signature || '',
           data.party_owner_signature || '',
           data.notes || '',
+          photosJson,
         ]
       );
 
@@ -291,6 +296,7 @@ class OrderService {
         md_signature: data.md_signature || '',
         party_owner_signature: data.party_owner_signature || '',
         notes: data.notes || '',
+        photos: data.photos || [],
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -313,6 +319,7 @@ class OrderService {
     const accJson = JSON.stringify(data.accessories ?? existing.accessories);
     const finishingJson = JSON.stringify(data.finishing_work ?? existing.finishing_work);
     const machroJson = JSON.stringify(data.machro ?? existing.machro);
+    const photosJson = JSON.stringify(data.photos ?? existing.photos ?? []);
 
     try {
       await db.query(
@@ -334,7 +341,8 @@ class OrderService {
           machro = ?,
           md_signature = ?,
           party_owner_signature = ?,
-          notes = ?
+          notes = ?,
+          photos = ?
         WHERE id = ?`,
         [
           data.order_no ?? existing.order_no,
@@ -355,6 +363,7 @@ class OrderService {
           data.md_signature ?? existing.md_signature,
           data.party_owner_signature ?? existing.party_owner_signature,
           data.notes ?? existing.notes,
+          photosJson,
           numId,
         ]
       );
@@ -369,6 +378,7 @@ class OrderService {
         ...memoryOrders[index],
         ...data,
         id: numId,
+        photos: data.photos ?? existing.photos ?? [],
         order_date: formattedOrderDate,
         entry_date: formattedEntryDate,
         updated_at: new Date().toISOString(),
@@ -405,8 +415,54 @@ class OrderService {
     return this.updateOrder(numId, updatedData);
   }
 
+  /**
+   * Add uploaded photos to order
+   */
+  async addPhotosToOrder(id, newPhotos = []) {
+    const numId = Number(id);
+    const order = await this.getOrderById(numId);
+    if (!order) return null;
+
+    const currentPhotos = Array.isArray(order.photos) ? order.photos : [];
+    const updatedPhotos = [...currentPhotos, ...newPhotos];
+
+    return this.updateOrder(numId, { ...order, photos: updatedPhotos });
+  }
+
+  /**
+   * Delete a photo from order and storage
+   */
+  async deletePhotoFromOrder(id, photoId) {
+    const numId = Number(id);
+    const order = await this.getOrderById(numId);
+    if (!order) return null;
+
+    const currentPhotos = Array.isArray(order.photos) ? order.photos : [];
+    const photoToDelete = currentPhotos.find((p) => p.id === photoId || p.key === photoId);
+
+    if (photoToDelete) {
+      // Delete object from Cloudflare R2 / local storage
+      await r2Service.deletePhoto(photoToDelete.key);
+    }
+
+    const updatedPhotos = currentPhotos.filter((p) => p.id !== photoId && p.key !== photoId);
+    return this.updateOrder(numId, { ...order, photos: updatedPhotos });
+  }
+
   async deleteOrder(id) {
     const numId = Number(id);
+    // Also delete all photos attached to this order
+    try {
+      const order = await this.getOrderById(numId);
+      if (order && Array.isArray(order.photos)) {
+        for (const p of order.photos) {
+          if (p.key) await r2Service.deletePhoto(p.key);
+        }
+      }
+    } catch (e) {
+      console.warn('Error cleaning up photos for deleted order:', e.message);
+    }
+
     try {
       const [result] = await db.query('DELETE FROM work_orders WHERE id = ?', [numId]);
       return result.affectedRows > 0;
@@ -421,3 +477,4 @@ class OrderService {
 
 export const orderService = new OrderService();
 export default orderService;
+

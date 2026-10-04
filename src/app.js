@@ -6,7 +6,12 @@ import apiRoutes from './routes/index.js';
 import { notFound } from './middlewares/notFound.middleware.js';
 import { errorHandler } from './middlewares/error.middleware.js';
 
+import path from 'path';
+
 const app = express();
+
+// Serve local uploads folder if fallback used
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // ==========================================
 // Global Middlewares

@@ -36,4 +36,15 @@ export const config = {
     pass: process.env.SMTP_PASS || 'jout doab oauq srhs',
     from: process.env.SMTP_FROM || 'Faizan Body Build <noreply@faizanbody.com>',
   },
+
+  // Cloudflare R2 Storage Configuration
+  r2: {
+    accountId: process.env.R2_ACCOUNT_ID || '656973beb479306ad97b9b3f65bc7137',
+    accessKeyId: process.env.R2_ACCESS_KEY_ID || '5bdcefdba2f4bc3f080d7504dd4e6a07',
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '960ded64be5d045b67d26ca7f83b426bbba073e35541e51620da1f3fea2eef75',
+    bucketName: process.env.R2_BUCKET_NAME || 'fizanbody',
+    endpoint: process.env.R2_ENDPOINT || 'https://656973beb479306ad97b9b3f65bc7137.r2.cloudflarestorage.com',
+    publicUrl: process.env.R2_PUBLIC_URL || '',
+  },
 };
+

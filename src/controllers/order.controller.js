@@ -1,4 +1,5 @@
 import { orderService } from '../services/order.service.js';
+import { r2Service } from '../services/r2.service.js';
 import { ApiResponse } from '../utils/apiResponse.js';
 import { ApiError } from '../utils/apiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -75,3 +76,70 @@ export const deleteOrder = asyncHandler(async (req, res) => {
   }
   return ApiResponse.success(res, { id: Number(id) }, 'Order deleted successfully');
 });
+
+/**
+ * Upload photos for an order (supports single or multiple photos)
+ */
+export const uploadPhotos = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const files = req.files;
+
+  if (!files || files.length === 0) {
+    throw ApiError.badRequest('Please select at least one photo to upload');
+  }
+
+  const existingOrder = await orderService.getOrderById(id);
+  if (!existingOrder) {
+    throw ApiError.notFound('Work order not found');
+  }
+
+  const uploadedList = [];
+  for (const file of files) {
+    const uploaded = await r2Service.uploadPhoto({
+      buffer: file.buffer,
+      originalname: file.originalname,
+      mimetype: file.mimetype,
+      size: file.size,
+      orderId: id,
+    });
+    uploadedList.push(uploaded);
+  }
+
+  const updatedOrder = await orderService.addPhotosToOrder(id, uploadedList);
+  return ApiResponse.success(res, updatedOrder, `${uploadedList.length} photo(s) uploaded successfully`);
+});
+
+/**
+ * Delete a specific photo from an order
+ */
+export const deletePhoto = asyncHandler(async (req, res) => {
+  const { id, photoId } = req.params;
+  const updatedOrder = await orderService.deletePhotoFromOrder(id, photoId);
+  if (!updatedOrder) {
+    throw ApiError.notFound('Order not found');
+  }
+  return ApiResponse.success(res, updatedOrder, 'Photo deleted successfully');
+});
+
+/**
+ * Stream/Serve photo from Cloudflare R2 (reliable proxy for private R2 buckets)
+ */
+export const streamPhoto = asyncHandler(async (req, res) => {
+  const { key } = req.query;
+  if (!key) {
+    throw ApiError.badRequest('Photo key is required');
+  }
+
+  try {
+    const { stream, contentType, contentLength } = await r2Service.getObjectStream(key);
+    res.setHeader('Content-Type', contentType);
+    if (contentLength) {
+      res.setHeader('Content-Length', contentLength);
+    }
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    stream.pipe(res);
+  } catch (error) {
+    throw ApiError.notFound('Image could not be retrieved from R2: ' + error.message);
+  }
+});
+

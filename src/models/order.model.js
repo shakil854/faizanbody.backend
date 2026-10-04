@@ -25,6 +25,7 @@ export const OrderModel = {
     md_signature: 'VARCHAR(150) NULL',
     party_owner_signature: 'VARCHAR(150) NULL',
     notes: 'TEXT NULL',
+    photos: 'JSON NULL',
     created_at: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
     updated_at: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
   },
