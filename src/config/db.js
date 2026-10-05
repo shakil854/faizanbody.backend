@@ -25,18 +25,22 @@ export const pool = mysql.createPool({
  */
 export const connectDB = async () => {
   try {
-    // 1. Check if database exists, create if not
-    const tempConnection = await mysql.createConnection({
-      host: config.db.host,
-      port: config.db.port,
-      user: config.db.user,
-      password: config.db.password,
-    });
+    // 1. Try to ensure database exists if permissions allow
+    try {
+      const tempConnection = await mysql.createConnection({
+        host: config.db.host,
+        port: config.db.port,
+        user: config.db.user,
+        password: config.db.password,
+      });
 
-    await tempConnection.query(
-      `CREATE DATABASE IF NOT EXISTS \`${config.db.database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
-    );
-    await tempConnection.end();
+      await tempConnection.query(
+        `CREATE DATABASE IF NOT EXISTS \`${config.db.database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+      );
+      await tempConnection.end();
+    } catch {
+      // Ignored if user lacks global CREATE DATABASE privilege or db already exists
+    }
 
     // 2. Test pool connection
     const connection = await pool.getConnection();
