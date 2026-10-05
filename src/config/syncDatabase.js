@@ -34,24 +34,8 @@ export async function syncDatabase({ alter = true } = {}) {
         const createSql = `CREATE TABLE \`${tableName}\` (\n  ${colDefinitions}\n)`;
         await connection.query(createSql);
         console.log(`✅ [DB Sync] Created table "${tableName}"`);
-
-        // Seed initial data if available
-        if (initialSeed && initialSeed.length > 0) {
-          for (const item of initialSeed) {
-            const keys = Object.keys(item);
-            const values = Object.values(item);
-            const placeholders = keys.map(() => '?').join(', ');
-            const colList = keys.map((k) => `\`${k}\``).join(', ');
-
-            await connection.query(
-              `INSERT INTO \`${tableName}\` (${colList}) VALUES (${placeholders})`,
-              values
-            );
-          }
-          console.log(`🌱 [DB Sync] Seeded ${initialSeed.length} records into "${tableName}"`);
-        }
       } else if (alter) {
-        // Table already exists: inspect columns for safe auto-migration
+        // Table already exists: inspect columns for safe auto-migration (Zero Data Loss)
         const [existingCols] = await connection.query(`SHOW COLUMNS FROM \`${tableName}\``);
         const existingColNames = existingCols.map((c) => c.Field.toLowerCase());
 
@@ -71,25 +55,6 @@ export async function syncDatabase({ alter = true } = {}) {
 
         if (addedColumnsCount === 0) {
           console.log(`✓ [DB Sync] Table "${tableName}" schema is up-to-date`);
-        }
-
-        // If table exists but is empty and has initialSeed, populate it
-        if (initialSeed && initialSeed.length > 0) {
-          const [countRows] = await connection.query(`SELECT COUNT(*) as count FROM \`${tableName}\``);
-          if (countRows[0]?.count === 0) {
-            for (const item of initialSeed) {
-              const keys = Object.keys(item);
-              const values = Object.values(item);
-              const placeholders = keys.map(() => '?').join(', ');
-              const colList = keys.map((k) => `\`${k}\``).join(', ');
-
-              await connection.query(
-                `INSERT INTO \`${tableName}\` (${colList}) VALUES (${placeholders})`,
-                values
-              );
-            }
-            console.log(`🌱 [DB Sync] Seeded ${initialSeed.length} initial records into empty "${tableName}"`);
-          }
         }
       }
 

@@ -19,11 +19,7 @@ export const WorkerModel = {
     { name: 'idx_workers_coming', column: 'coming_date' },
     { name: 'idx_workers_going', column: 'going_date' },
   ],
-  initialSeed: [
-    { name: 'Mohammad Faizan', coming_date: '2025-01-10', going_date: null },
-    { name: 'Rashid Ahmed', coming_date: '2025-02-01', going_date: null },
-    { name: 'Ramesh Sharma', coming_date: '2024-10-15', going_date: '2025-03-15' },
-  ],
+  initialSeed: [],
 };
 
 export default WorkerModel;

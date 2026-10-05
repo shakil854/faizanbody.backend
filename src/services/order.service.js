@@ -68,87 +68,8 @@ function formatOrderRow(row) {
 /**
  * In-memory fallback dataset when MySQL is offline
  */
-let memoryOrders = [
-  {
-    id: 1,
-    order_no: 'WO-2025-001',
-    order_date: '2025-02-15',
-    condition_text: 'नया केबिन और बॉडी वर्क',
-    owner_name: 'इकबाल भाई पटेल',
-    mobile_number: '9876543210',
-    entry_date: '2025-02-15',
-    truck_chassis_no: 'GJ-01-AB-1234',
-    shade_no: 'Royal Blue / 402',
-    status: 'In Progress',
-    cabin_work: {
-      boxes: ['', '', ''],
-      items: {
-        moro: { value: 'Standard Steel', done: true },
-        peeth: { value: 'Heavy Duty', done: true },
-        panal_chhapni: { value: 'Full Chrome Emboss', done: false },
-        paga_khidki: { value: 'Double Sliding', done: false },
-        dashboard_prakar: { value: 'Deluxe Plywood Finish', done: false },
-        anya_kaam: { value: '', done: false },
-      },
-    },
-    inside_work: {
-      boxes: ['', '', ''],
-      items: {
-        niyamit_furniture_four_t: { value: 'Teak Finish 4-T', done: false },
-        speaker_size: { value: '6x9 Inch Oval', done: false },
-        sofa_seat: { value: 'Luxury Foam Sleeper', done: false },
-        carrier: { value: 'Roof Luggage Carrier', done: false },
-        anya_kaam: { value: '', done: false },
-      },
-    },
-    body_work: {
-      boxes: ['', '', ''],
-      items: {
-        runner: { value: '100x50 Channel', done: true },
-        dhokha_lambai_matra: { value: '22 Feet / 4 Piece', done: true },
-        side_oonchai: { value: '6.5 Feet', done: false },
-        side_prakar: { value: 'पतरा', done: false },
-        plate_motai_mm: { value: '3.15 mm Chequered', done: false },
-        falka_prakar: { value: 'लोखंड', done: false },
-        peeche_jaali_prakar: { value: 'Heavy Grill Pattern A', done: false },
-        peeche_vel: { value: 'Special Design', done: false },
-        side_khidki: { value: '2 x 3 Feet', done: false },
-        anya_kaam: { value: '', done: false },
-      },
-    },
-    accessories: {
-      boxes: ['', '', ''],
-      items: {
-        bari_prakar: { value: 'Single Fold', done: false },
-        niyamit: { value: 'Standard Tool Box', done: false },
-        anya_kaam: { value: '', done: false },
-      },
-    },
-    finishing_work: {
-      color: { value: 'Dark Royal Blue Metallic', boxes: ['', '', ''], done: false },
-      redium: { value: 'Yellow Reflective Strip 3M', boxes: ['', '', ''], done: false },
-      painting: { value: 'Faizan Body Art Graphics', boxes: ['', '', ''], done: false },
-      vayring: { value: 'Full LED Harness 12V/24V', boxes: ['', '', ''], done: false },
-    },
-    machro: {
-      boxes: ['', '', ''],
-      items: {
-        plate_oonchai_thambhla: { value: '5 Feet / 6 Pole', done: false },
-        side_pipe_matra_prakar: { value: '2 Inch Heavy Pipe', done: false },
-        bhaya_matra_prakar: { value: 'Standard Gusset', done: false },
-        dhar: { value: 'Round Edge Smooth', done: false },
-        top_pipe_angle_prakar: { value: '50x5 Angle', done: false },
-      },
-    },
-    md_signature: 'Faizan',
-    party_owner_signature: 'Iqbal Bhai',
-    notes: 'Urgent delivery required by month end.',
-    photos: [],
-    created_at: new Date('2025-02-15').toISOString(),
-    updated_at: new Date('2025-02-15').toISOString(),
-  },
-];
-let nextOrderId = 2;
+let memoryOrders = [];
+let nextOrderId = 1;
 
 class OrderService {
   async getAllOrders({ search = '', status = 'all' } = {}) {

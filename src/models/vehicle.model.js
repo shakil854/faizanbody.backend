@@ -10,11 +10,7 @@ export const VehicleModel = {
     status: 'VARCHAR(50) DEFAULT "Active"',
     created_at: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
   },
-  initialSeed: [
-    { name: 'Truck Body Model Alpha', category: 'Heavy Duty', status: 'Active' },
-    { name: 'Tipper Body Model X', category: 'Tipper', status: 'Active' },
-    { name: 'Container Body Spec-Z', category: 'Container', status: 'Pending Review' },
-  ],
+  initialSeed: [],
 };
 
 export default VehicleModel;

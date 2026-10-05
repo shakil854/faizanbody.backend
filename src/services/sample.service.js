@@ -34,12 +34,7 @@ class SampleService {
       console.warn('⚠️ [DB Notice] vehicle_models table query fallback:', dbError.message);
     }
 
-    // Default fallback sample items
-    return [
-      { id: 1, name: 'Truck Body Model Alpha', category: 'Heavy Duty', status: 'Active' },
-      { id: 2, name: 'Tipper Body Model X', category: 'Tipper', status: 'Active' },
-      { id: 3, name: 'Container Body Spec-Z', category: 'Container', status: 'Pending Review' },
-    ];
+    return [];
   }
 }
 

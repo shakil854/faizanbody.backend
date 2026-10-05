@@ -3,33 +3,8 @@ import db from '../config/db.js';
 /**
  * In-memory fallback dataset for when MySQL is offline
  */
-let memoryWorkers = [
-  {
-    id: 1,
-    name: 'Mohammad Faizan',
-    coming_date: '2025-01-10',
-    going_date: null,
-    created_at: new Date('2025-01-10').toISOString(),
-    updated_at: new Date('2025-01-10').toISOString(),
-  },
-  {
-    id: 2,
-    name: 'Rashid Ahmed',
-    coming_date: '2025-02-01',
-    going_date: null,
-    created_at: new Date('2025-02-01').toISOString(),
-    updated_at: new Date('2025-02-01').toISOString(),
-  },
-  {
-    id: 3,
-    name: 'Ramesh Sharma',
-    coming_date: '2024-10-15',
-    going_date: '2025-03-15',
-    created_at: new Date('2024-10-15').toISOString(),
-    updated_at: new Date('2025-03-15').toISOString(),
-  },
-];
-let nextId = 4;
+let memoryWorkers = [];
+let nextId = 1;
 
 // High-speed short-term query cache for instant responses
 let queryCache = null;
