@@ -93,17 +93,17 @@ export const uploadPhotos = asyncHandler(async (req, res) => {
     throw ApiError.notFound('Work order not found');
   }
 
-  const uploadedList = [];
-  for (const file of files) {
-    const uploaded = await r2Service.uploadPhoto({
-      buffer: file.buffer,
-      originalname: file.originalname,
-      mimetype: file.mimetype,
-      size: file.size,
-      orderId: id,
-    });
-    uploadedList.push(uploaded);
-  }
+  const uploadedList = await Promise.all(
+    files.map((file) =>
+      r2Service.uploadPhoto({
+        buffer: file.buffer,
+        originalname: file.originalname,
+        mimetype: file.mimetype,
+        size: file.size,
+        orderId: id,
+      })
+    )
+  );
 
   const updatedOrder = await orderService.addPhotosToOrder(id, uploadedList);
   return ApiResponse.success(res, updatedOrder, `${uploadedList.length} photo(s) uploaded successfully`);
