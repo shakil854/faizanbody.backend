@@ -449,6 +449,28 @@ class OrderService {
     return this.updateOrder(numId, { ...order, photos: updatedPhotos });
   }
 
+  /**
+   * Delete all photos from an order and storage
+   */
+  async deleteAllPhotosFromOrder(id) {
+    const numId = Number(id);
+    const order = await this.getOrderById(numId);
+    if (!order) return null;
+
+    const currentPhotos = Array.isArray(order.photos) ? order.photos : [];
+    for (const p of currentPhotos) {
+      if (p.key) {
+        try {
+          await r2Service.deletePhoto(p.key);
+        } catch (err) {
+          console.warn('Failed to delete photo from storage:', p.key, err.message);
+        }
+      }
+    }
+
+    return this.updateOrder(numId, { ...order, photos: [] });
+  }
+
   async deleteOrder(id) {
     const numId = Number(id);
     // Also delete all photos attached to this order

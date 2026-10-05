@@ -8,6 +8,7 @@ import {
   deleteOrder,
   uploadPhotos,
   deletePhoto,
+  deleteAllPhotos,
   streamPhoto,
 } from '../controllers/order.controller.js';
 import { verifyToken } from '../middlewares/auth.middleware.js';
@@ -34,7 +35,8 @@ router.route('/orders/:id/toggle-task')
 
 // Photo upload & delete for work orders
 router.route('/orders/:id/photos')
-  .post(verifyToken, uploadOrderPhotos.array('photos', 10), uploadPhotos);
+  .post(verifyToken, uploadOrderPhotos.array('photos', 10), uploadPhotos)
+  .delete(verifyToken, deleteAllPhotos);
 
 router.route('/orders/:id/photos/:photoId')
   .delete(verifyToken, deletePhoto);

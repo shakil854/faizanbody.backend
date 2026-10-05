@@ -122,6 +122,18 @@ export const deletePhoto = asyncHandler(async (req, res) => {
 });
 
 /**
+ * Delete all photos attached to an order
+ */
+export const deleteAllPhotos = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const updatedOrder = await orderService.deleteAllPhotosFromOrder(id);
+  if (!updatedOrder) {
+    throw ApiError.notFound('Order not found');
+  }
+  return ApiResponse.success(res, updatedOrder, 'All photos deleted successfully');
+});
+
+/**
  * Stream/Serve photo from Cloudflare R2 (reliable proxy for private R2 buckets)
  */
 export const streamPhoto = asyncHandler(async (req, res) => {
