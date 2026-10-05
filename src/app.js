@@ -19,8 +19,14 @@ app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps, curl, postman) or matching frontend
-      if (!origin || origin === config.clientUrl || config.nodeEnv === 'development') {
+      // Allow requests with no origin, matching clientUrl, wildcard, or local dev
+      if (
+        !origin ||
+        config.clientUrl === '*' ||
+        origin === config.clientUrl ||
+        config.nodeEnv === 'development' ||
+        origin.includes('localhost')
+      ) {
         callback(null, true);
       } else {
         callback(new Error('Blocked by CORS policy'));
