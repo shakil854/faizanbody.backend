@@ -11,7 +11,7 @@ export const config = {
 
   // MySQL Database Configuration
   db: {
-    host: process.env.DB_HOST || 'localhost',
+    host: process.env.DB_HOST || '200.141.8.22',
     port: parseInt(process.env.DB_PORT || '3306', 10),
     user: process.env.DB_USER || 'faizanbody',
     password: process.env.DB_PASSWORD || 'faizanbody',
