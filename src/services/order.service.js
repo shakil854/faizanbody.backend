@@ -359,14 +359,26 @@ class OrderService {
     if (!order) return null;
 
     const currentPhotos = Array.isArray(order.photos) ? order.photos : [];
-    const photoToDelete = currentPhotos.find((p) => p.id === photoId || p.key === photoId);
+    const photoToDelete = currentPhotos.find((p) => {
+      if (!p) return false;
+      if (typeof p === 'string') return p === photoId || p.includes(photoId);
+      return p.id === photoId || p.key === photoId || (p.url && p.url.includes(photoId));
+    });
 
     if (photoToDelete) {
       // Delete object from Cloudflare R2 / local storage
-      await r2Service.deletePhoto(photoToDelete.key);
+      const keyToDelete = typeof photoToDelete === 'string'
+        ? photoToDelete
+        : (photoToDelete.key || photoToDelete.url);
+      await r2Service.deletePhoto(keyToDelete);
     }
 
-    const updatedPhotos = currentPhotos.filter((p) => p.id !== photoId && p.key !== photoId);
+    const updatedPhotos = currentPhotos.filter((p) => {
+      if (!p) return false;
+      if (typeof p === 'string') return p !== photoId && !p.includes(photoId);
+      return p.id !== photoId && p.key !== photoId && (!p.url || !p.url.includes(photoId));
+    });
+
     return this.updateOrder(numId, { ...order, photos: updatedPhotos });
   }
 
@@ -380,11 +392,12 @@ class OrderService {
 
     const currentPhotos = Array.isArray(order.photos) ? order.photos : [];
     for (const p of currentPhotos) {
-      if (p.key) {
+      const keyToDelete = typeof p === 'string' ? p : (p?.key || p?.url);
+      if (keyToDelete) {
         try {
-          await r2Service.deletePhoto(p.key);
+          await r2Service.deletePhoto(keyToDelete);
         } catch (err) {
-          console.warn('Failed to delete photo from storage:', p.key, err.message);
+          console.warn('Failed to delete photo from storage:', keyToDelete, err.message);
         }
       }
     }
@@ -394,12 +407,15 @@ class OrderService {
 
   async deleteOrder(id) {
     const numId = Number(id);
-    // Also delete all photos attached to this order
+    // Also delete all photos attached to this order from R2/storage
     try {
       const order = await this.getOrderById(numId);
       if (order && Array.isArray(order.photos)) {
         for (const p of order.photos) {
-          if (p.key) await r2Service.deletePhoto(p.key);
+          const keyToDelete = typeof p === 'string' ? p : (p?.key || p?.url);
+          if (keyToDelete) {
+            await r2Service.deletePhoto(keyToDelete);
+          }
         }
       }
     } catch (e) {

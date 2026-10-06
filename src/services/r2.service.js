@@ -107,8 +107,25 @@ class R2StorageService {
   /**
    * Delete a photo from R2 or local storage
    */
-  async deletePhoto(key) {
-    if (!key) return;
+  async deletePhoto(rawKey) {
+    if (!rawKey) return;
+
+    let key = String(rawKey).trim();
+
+    // If a full or streaming URL was provided, extract the clean R2 storage key
+    if (key.includes('key=')) {
+      try {
+        const match = key.match(/key=([^&]+)/);
+        if (match && match[1]) {
+          key = decodeURIComponent(match[1]);
+        }
+      } catch (e) {
+        // keep key as is
+      }
+    } else if (key.includes('orders/')) {
+      const idx = key.indexOf('orders/');
+      key = key.slice(idx);
+    }
 
     if (key.startsWith('local:')) {
       const relativePath = key.replace('local:', '');
