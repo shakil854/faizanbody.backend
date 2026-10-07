@@ -140,6 +140,7 @@ export async function sendOtpEmail({ toEmail, userName = 'User', otp, type = 'fo
     try {
       const gRes = await fetch(gmailScriptUrl, {
         method: 'POST',
+        redirect: 'follow',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           to: toEmail,
