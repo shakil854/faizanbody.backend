@@ -27,6 +27,9 @@ const getTransporter = () => {
           user,
           pass,
         },
+        connectionTimeout: 5000,
+        greetingTimeout: 5000,
+        socketTimeout: 5000,
       });
     } else if (host) {
       return nodemailer.createTransport({
@@ -37,6 +40,9 @@ const getTransporter = () => {
           user,
           pass,
         },
+        connectionTimeout: 5000,
+        greetingTimeout: 5000,
+        socketTimeout: 5000,
       });
     }
   }
@@ -128,6 +134,72 @@ export async function sendOtpEmail({ toEmail, userName = 'User', otp, type = 'fo
     </html>
   `;
 
+  // 1. Try Brevo HTTPS API (Works 100% on Render / Cloud where SMTP is blocked)
+  if (process.env.BREVO_API_KEY) {
+    try {
+      const brevoSender = process.env.BREVO_SENDER || process.env.SMTP_USER || 'syncrobytetech@gmail.com';
+      const brevoRes = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'accept': 'application/json',
+          'api-key': process.env.BREVO_API_KEY,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          sender: { name: 'Faizan Body Build', email: brevoSender },
+          to: [{ email: toEmail, name: userName }],
+          subject,
+          htmlContent,
+          textContent: plainText,
+        }),
+      });
+
+      if (brevoRes.ok) {
+        const bData = await brevoRes.json();
+        console.log(`\n✅ [Brevo HTTPS LIVE] OTP Email sent successfully to ${toEmail} (ID: ${bData.messageId})\n`);
+        return { success: true, delivered: true, messageId: bData.messageId };
+      } else {
+        const errText = await brevoRes.text();
+        console.warn(`⚠️ [Brevo API Error]: ${errText}`);
+      }
+    } catch (bErr) {
+      console.warn(`⚠️ [Brevo Request Error]: ${bErr.message}`);
+    }
+  }
+
+  // 2. Try Resend HTTPS API (Works 100% on Render / Cloud where SMTP is blocked)
+  if (process.env.RESEND_API_KEY) {
+    try {
+      const resendSender = process.env.RESEND_SENDER || 'onboarding@resend.dev';
+      const resendRes = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: `Faizan Body <${resendSender}>`,
+          to: [toEmail],
+          subject,
+          html: htmlContent,
+          text: plainText,
+        }),
+      });
+
+      if (resendRes.ok) {
+        const rData = await resendRes.json();
+        console.log(`\n✅ [Resend HTTPS LIVE] OTP Email sent successfully to ${toEmail} (ID: ${rData.id})\n`);
+        return { success: true, delivered: true, messageId: rData.id };
+      } else {
+        const errText = await resendRes.text();
+        console.warn(`⚠️ [Resend API Error]: ${errText}`);
+      }
+    } catch (rErr) {
+      console.warn(`⚠️ [Resend Request Error]: ${rErr.message}`);
+    }
+  }
+
+  // 3. Fallback to Nodemailer SMTP (Fast timeout protected against hung connections)
   const activeTransporter = getTransporter();
 
   if (activeTransporter) {
