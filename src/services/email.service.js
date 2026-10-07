@@ -134,6 +134,30 @@ export async function sendOtpEmail({ toEmail, userName = 'User', otp, type = 'fo
     </html>
   `;
 
+  // 0. Google Apps Script Web App (Sends directly from Gmail account via HTTPS 443 - zero SMTP port blocks on Render!)
+  const gmailScriptUrl = process.env.GMAIL_SCRIPT_URL;
+  if (gmailScriptUrl) {
+    try {
+      const gRes = await fetch(gmailScriptUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          to: toEmail,
+          userName,
+          subject,
+          text: plainText,
+          html: htmlContent,
+        }),
+      });
+      if (gRes.ok) {
+        console.log(`\n✅ [Gmail Webhook LIVE] OTP Email sent directly via Gmail to ${toEmail}\n`);
+        return { success: true, delivered: true, provider: 'gmail_webapp' };
+      }
+    } catch (gErr) {
+      console.warn(`⚠️ [Gmail Webhook Error]: ${gErr.message}`);
+    }
+  }
+
   // 1. Try Brevo HTTPS API (Works 100% on Render / Cloud where SMTP is blocked)
   if (process.env.BREVO_API_KEY) {
     try {
