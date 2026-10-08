@@ -53,6 +53,21 @@ export async function syncDatabase({ alter = true } = {}) {
           }
         }
 
+        // Safe auto-expansion for digital signatures (Zero Data Loss)
+        if (tableName === 'work_orders') {
+          for (const sigCol of ['md_signature', 'party_owner_signature']) {
+            const found = existingCols.find((c) => c.Field.toLowerCase() === sigCol.toLowerCase());
+            if (found && !found.Type.toLowerCase().includes('text')) {
+              try {
+                await connection.query(`ALTER TABLE \`work_orders\` MODIFY COLUMN \`${sigCol}\` LONGTEXT NULL`);
+                console.log(`✨ [Auto-Migrate] Widened ${sigCol} to LONGTEXT NULL for digital signatures safely`);
+              } catch (alterErr) {
+                console.warn(`[Auto-Migrate notice]: ${alterErr.message}`);
+              }
+            }
+          }
+        }
+
         if (addedColumnsCount === 0) {
           console.log(`✓ [DB Sync] Table "${tableName}" schema is up-to-date`);
         }
