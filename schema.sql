@@ -27,6 +27,23 @@ CREATE TABLE IF NOT EXISTS workers (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
+-- 3. Worker Transactions / Jama-Udhar Khata Table
+CREATE TABLE IF NOT EXISTS worker_transactions (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  worker_id INT NOT NULL,
+  type VARCHAR(50) NOT NULL COMMENT 'upad, payment, salary',
+  amount DECIMAL(10, 2) NOT NULL,
+  date DATE NOT NULL,
+  notes VARCHAR(255) NULL,
+  payment_mode VARCHAR(50) DEFAULT 'Cash',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_worker_tx_worker (worker_id),
+  INDEX idx_worker_tx_date (date),
+  INDEX idx_worker_tx_type (type)
+);
+
+
 
 
 

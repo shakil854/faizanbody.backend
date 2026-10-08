@@ -5,6 +5,8 @@ import db from '../config/db.js';
  */
 let memoryWorkers = [];
 let nextId = 1;
+let memoryTransactions = [];
+let nextTxId = 1;
 
 // High-speed short-term query cache for instant responses
 let queryCache = null;
@@ -38,37 +40,58 @@ class WorkerService {
     }
 
     try {
-      let sql = 'SELECT id, name, mobile, aadhar_card, coming_date, going_date FROM workers';
+      let sql = `
+        SELECT 
+          w.id, w.name, w.mobile, w.aadhar_card, w.coming_date, w.going_date,
+          COALESCE(SUM(CASE WHEN t.type = 'salary' THEN t.amount ELSE 0 END), 0) AS total_salary,
+          COALESCE(SUM(CASE WHEN t.type = 'upad' THEN t.amount ELSE 0 END), 0) AS total_upad,
+          COALESCE(SUM(CASE WHEN t.type = 'payment' THEN t.amount ELSE 0 END), 0) AS total_paid
+        FROM workers w
+        LEFT JOIN worker_transactions t ON w.id = t.worker_id
+      `;
       const conditions = [];
       const params = [];
 
       if (search && search.trim()) {
-        conditions.push('(name LIKE ? OR mobile LIKE ?)');
+        conditions.push('(w.name LIKE ? OR w.mobile LIKE ?)');
         params.push(`%${search.trim()}%`, `%${search.trim()}%`);
       }
 
       if (status === 'active') {
-        conditions.push('(going_date IS NULL OR going_date = "")');
+        conditions.push('(w.going_date IS NULL OR w.going_date = "")');
       } else if (status === 'relieved') {
-        conditions.push('(going_date IS NOT NULL AND going_date != "")');
+        conditions.push('(w.going_date IS NOT NULL AND w.going_date != "")');
       }
 
       if (conditions.length > 0) {
         sql += ` WHERE ${conditions.join(' AND ')}`;
       }
 
-      sql += ' ORDER BY coming_date DESC, id DESC';
+      sql += ' GROUP BY w.id ORDER BY w.coming_date DESC, w.id DESC';
 
       const [rows] = await db.query(sql, params);
-      const result = rows.map((w) => ({
-        id: w.id,
-        name: w.name,
-        mobile: w.mobile || '',
-        aadhar_card: w.aadhar_card || null,
-        coming_date: formatDate(w.coming_date),
-        going_date: formatDate(w.going_date),
-        status: w.going_date ? 'relieved' : 'active',
-      }));
+      const result = rows.map((w) => {
+        const totalSalary = Number(w.total_salary) || 0;
+        const totalUpad = Number(w.total_upad) || 0;
+        const totalPaid = Number(w.total_paid) || 0;
+        const balance = totalSalary - (totalUpad + totalPaid);
+
+        return {
+          id: w.id,
+          name: w.name,
+          mobile: w.mobile || '',
+          aadhar_card: w.aadhar_card || null,
+          coming_date: formatDate(w.coming_date),
+          going_date: formatDate(w.going_date),
+          status: w.going_date ? 'relieved' : 'active',
+          khata: {
+            total_salary: totalSalary,
+            total_upad: totalUpad,
+            total_paid: totalPaid,
+            balance: balance,
+          },
+        };
+      });
 
       if (isDefaultQuery) {
         queryCache = result;
@@ -96,15 +119,29 @@ class WorkerService {
 
       list.sort((a, b) => new Date(b.coming_date) - new Date(a.coming_date));
 
-      const result = list.map((w) => ({
-        id: w.id,
-        name: w.name,
-        mobile: w.mobile || '',
-        aadhar_card: w.aadhar_card || null,
-        coming_date: formatDate(w.coming_date),
-        going_date: formatDate(w.going_date),
-        status: w.going_date ? 'relieved' : 'active',
-      }));
+      const result = list.map((w) => {
+        const txs = memoryTransactions.filter((t) => t.worker_id === w.id);
+        const totalSalary = txs.filter((t) => t.type === 'salary').reduce((sum, t) => sum + Number(t.amount || 0), 0);
+        const totalUpad = txs.filter((t) => t.type === 'upad').reduce((sum, t) => sum + Number(t.amount || 0), 0);
+        const totalPaid = txs.filter((t) => t.type === 'payment').reduce((sum, t) => sum + Number(t.amount || 0), 0);
+        const balance = totalSalary - (totalUpad + totalPaid);
+
+        return {
+          id: w.id,
+          name: w.name,
+          mobile: w.mobile || '',
+          aadhar_card: w.aadhar_card || null,
+          coming_date: formatDate(w.coming_date),
+          going_date: formatDate(w.going_date),
+          status: w.going_date ? 'relieved' : 'active',
+          khata: {
+            total_salary: totalSalary,
+            total_upad: totalUpad,
+            total_paid: totalPaid,
+            balance: balance,
+          },
+        };
+      });
 
       if (isDefaultQuery) {
         queryCache = result;
@@ -119,11 +156,24 @@ class WorkerService {
     const numId = Number(id);
     try {
       const [rows] = await db.query(
-        'SELECT id, name, mobile, aadhar_card, coming_date, going_date FROM workers WHERE id = ?',
+        `SELECT 
+          w.id, w.name, w.mobile, w.aadhar_card, w.coming_date, w.going_date,
+          COALESCE(SUM(CASE WHEN t.type = 'salary' THEN t.amount ELSE 0 END), 0) AS total_salary,
+          COALESCE(SUM(CASE WHEN t.type = 'upad' THEN t.amount ELSE 0 END), 0) AS total_upad,
+          COALESCE(SUM(CASE WHEN t.type = 'payment' THEN t.amount ELSE 0 END), 0) AS total_paid
+        FROM workers w
+        LEFT JOIN worker_transactions t ON w.id = t.worker_id
+        WHERE w.id = ?
+        GROUP BY w.id`,
         [numId]
       );
       if (rows && rows.length > 0) {
         const w = rows[0];
+        const totalSalary = Number(w.total_salary) || 0;
+        const totalUpad = Number(w.total_upad) || 0;
+        const totalPaid = Number(w.total_paid) || 0;
+        const balance = totalSalary - (totalUpad + totalPaid);
+
         return {
           id: w.id,
           name: w.name,
@@ -132,12 +182,25 @@ class WorkerService {
           coming_date: formatDate(w.coming_date),
           going_date: formatDate(w.going_date),
           status: w.going_date ? 'relieved' : 'active',
+          khata: {
+            total_salary: totalSalary,
+            total_upad: totalUpad,
+            total_paid: totalPaid,
+            balance: balance,
+          },
         };
       }
       return null;
     } catch (error) {
       const w = memoryWorkers.find((item) => item.id === numId);
       if (!w) return null;
+
+      const txs = memoryTransactions.filter((t) => t.worker_id === w.id);
+      const totalSalary = txs.filter((t) => t.type === 'salary').reduce((sum, t) => sum + Number(t.amount || 0), 0);
+      const totalUpad = txs.filter((t) => t.type === 'upad').reduce((sum, t) => sum + Number(t.amount || 0), 0);
+      const totalPaid = txs.filter((t) => t.type === 'payment').reduce((sum, t) => sum + Number(t.amount || 0), 0);
+      const balance = totalSalary - (totalUpad + totalPaid);
+
       return {
         id: w.id,
         name: w.name,
@@ -146,6 +209,12 @@ class WorkerService {
         coming_date: formatDate(w.coming_date),
         going_date: formatDate(w.going_date),
         status: w.going_date ? 'relieved' : 'active',
+        khata: {
+          total_salary: totalSalary,
+          total_upad: totalUpad,
+          total_paid: totalPaid,
+          balance: balance,
+        },
       };
     }
   }
@@ -248,6 +317,166 @@ class WorkerService {
       return memoryWorkers.length < initialLen;
     }
   }
+
+  /**
+   * Get all transactions & khata summary for a specific worker
+   */
+  async getWorkerTransactions(workerId) {
+    const numId = Number(workerId);
+    try {
+      const [rows] = await db.query(
+        'SELECT id, worker_id, type, amount, date, notes, payment_mode, created_at FROM worker_transactions WHERE worker_id = ? ORDER BY date DESC, id DESC',
+        [numId]
+      );
+      const transactions = rows.map((t) => ({
+        id: t.id,
+        worker_id: t.worker_id,
+        type: t.type,
+        amount: Number(t.amount) || 0,
+        date: formatDate(t.date),
+        notes: t.notes || '',
+        payment_mode: t.payment_mode || 'Cash',
+        created_at: t.created_at,
+      }));
+
+      const totalSalary = transactions.filter((t) => t.type === 'salary').reduce((s, t) => s + t.amount, 0);
+      const totalUpad = transactions.filter((t) => t.type === 'upad').reduce((s, t) => s + t.amount, 0);
+      const totalPaid = transactions.filter((t) => t.type === 'payment').reduce((s, t) => s + t.amount, 0);
+      const balance = totalSalary - (totalUpad + totalPaid);
+
+      return {
+        transactions,
+        summary: {
+          total_salary: totalSalary,
+          total_upad: totalUpad,
+          total_paid: totalPaid,
+          balance,
+        },
+      };
+    } catch (error) {
+      console.warn('⚠️ [WorkerService DB Warning - Using Memory Store for Transactions]:', error.message);
+      const txs = memoryTransactions
+        .filter((t) => t.worker_id === numId)
+        .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      const totalSalary = txs.filter((t) => t.type === 'salary').reduce((s, t) => s + Number(t.amount || 0), 0);
+      const totalUpad = txs.filter((t) => t.type === 'upad').reduce((s, t) => s + Number(t.amount || 0), 0);
+      const totalPaid = txs.filter((t) => t.type === 'payment').reduce((s, t) => s + Number(t.amount || 0), 0);
+      const balance = totalSalary - (totalUpad + totalPaid);
+
+      return {
+        transactions: txs,
+        summary: {
+          total_salary: totalSalary,
+          total_upad: totalUpad,
+          total_paid: totalPaid,
+          balance,
+        },
+      };
+    }
+  }
+
+  /**
+   * Add a new Khata transaction for worker (upad, payment, or salary)
+   */
+  async addWorkerTransaction(workerId, { type, amount, date, notes = '', payment_mode = 'Cash' }) {
+    const numWorkerId = Number(workerId);
+    const numAmount = Number(amount);
+    const formattedDate = formatDate(date) || new Date().toISOString().split('T')[0];
+    const sanitizedNotes = notes ? String(notes).trim() : '';
+    const sanitizedMode = payment_mode ? String(payment_mode).trim() : 'Cash';
+
+    invalidateCache();
+
+    try {
+      const [result] = await db.query(
+        'INSERT INTO worker_transactions (worker_id, type, amount, date, notes, payment_mode) VALUES (?, ?, ?, ?, ?, ?)',
+        [numWorkerId, type, numAmount, formattedDate, sanitizedNotes, sanitizedMode]
+      );
+
+      return {
+        id: result.insertId,
+        worker_id: numWorkerId,
+        type,
+        amount: numAmount,
+        date: formattedDate,
+        notes: sanitizedNotes,
+        payment_mode: sanitizedMode,
+        created_at: new Date().toISOString(),
+      };
+    } catch (error) {
+      console.warn('⚠️ [WorkerService DB Warning - Using Memory Store for Transaction Insert]:', error.message);
+      const newTx = {
+        id: nextTxId++,
+        worker_id: numWorkerId,
+        type,
+        amount: numAmount,
+        date: formattedDate,
+        notes: sanitizedNotes,
+        payment_mode: sanitizedMode,
+        created_at: new Date().toISOString(),
+      };
+      memoryTransactions.push(newTx);
+      return newTx;
+    }
+  }
+
+  /**
+   * Delete a transaction record
+   */
+  async deleteWorkerTransaction(transactionId) {
+    const numId = Number(transactionId);
+    invalidateCache();
+
+    try {
+      const [result] = await db.query('DELETE FROM worker_transactions WHERE id = ?', [numId]);
+      return result.affectedRows > 0;
+    } catch (error) {
+      console.warn('⚠️ [WorkerService DB Warning - Using Memory Store for Transaction Delete]:', error.message);
+      const initLen = memoryTransactions.length;
+      memoryTransactions = memoryTransactions.filter((t) => t.id !== numId);
+      return memoryTransactions.length < initLen;
+    }
+  }
+
+  /**
+   * Get overall workshop-wide Khata summary
+   */
+  async getWorkshopKhataSummary() {
+    try {
+      const [rows] = await db.query(`
+        SELECT 
+          COALESCE(SUM(CASE WHEN type = 'salary' THEN amount ELSE 0 END), 0) AS total_salary,
+          COALESCE(SUM(CASE WHEN type = 'upad' THEN amount ELSE 0 END), 0) AS total_upad,
+          COALESCE(SUM(CASE WHEN type = 'payment' THEN amount ELSE 0 END), 0) AS total_paid
+        FROM worker_transactions
+      `);
+      const totalSalary = Number(rows[0]?.total_salary) || 0;
+      const totalUpad = Number(rows[0]?.total_upad) || 0;
+      const totalPaid = Number(rows[0]?.total_paid) || 0;
+      const balance = totalSalary - (totalUpad + totalPaid);
+
+      return {
+        total_salary: totalSalary,
+        total_upad: totalUpad,
+        total_paid: totalPaid,
+        balance,
+      };
+    } catch (error) {
+      const totalSalary = memoryTransactions.filter((t) => t.type === 'salary').reduce((s, t) => s + Number(t.amount || 0), 0);
+      const totalUpad = memoryTransactions.filter((t) => t.type === 'upad').reduce((s, t) => s + Number(t.amount || 0), 0);
+      const totalPaid = memoryTransactions.filter((t) => t.type === 'payment').reduce((s, t) => s + Number(t.amount || 0), 0);
+      const balance = totalSalary - (totalUpad + totalPaid);
+
+      return {
+        total_salary: totalSalary,
+        total_upad: totalUpad,
+        total_paid: totalPaid,
+        balance,
+      };
+    }
+  }
 }
 
 export const workerService = new WorkerService();
+

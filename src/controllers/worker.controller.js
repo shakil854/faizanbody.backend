@@ -103,3 +103,68 @@ export const deleteWorker = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, { id: Number(id) }, 'Worker deleted successfully');
 });
 
+/**
+ * Get all Khata transactions & summary for a worker
+ */
+export const getWorkerTransactions = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const data = await workerService.getWorkerTransactions(id);
+  return ApiResponse.success(res, data, 'Worker transactions retrieved successfully');
+});
+
+/**
+ * Add a new Khata entry (upad, payment, salary) for a worker
+ */
+export const addWorkerTransaction = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { type, amount, date, notes, payment_mode } = req.body;
+
+  if (!type || !['upad', 'payment', 'salary'].includes(type)) {
+    throw ApiError.badRequest('Valid transaction type is required (upad, payment, or salary)');
+  }
+
+  const numAmount = Number(amount);
+  if (isNaN(numAmount) || numAmount <= 0) {
+    throw ApiError.badRequest('Amount must be a positive number (रुपये आवश्यक है)');
+  }
+
+  const createdTx = await workerService.addWorkerTransaction(id, {
+    type,
+    amount: numAmount,
+    date,
+    notes,
+    payment_mode,
+  });
+
+  // Also fetch fresh summary
+  const freshData = await workerService.getWorkerTransactions(id);
+
+  return ApiResponse.created(res, {
+    transaction: createdTx,
+    summary: freshData.summary,
+  }, 'Transaction recorded successfully');
+});
+
+/**
+ * Delete a specific Khata transaction entry
+ */
+export const deleteWorkerTransaction = asyncHandler(async (req, res) => {
+  const { id, transactionId } = req.params;
+  const deleted = await workerService.deleteWorkerTransaction(transactionId);
+  if (!deleted) {
+    throw ApiError.notFound('Transaction not found or already deleted');
+  }
+
+  const freshData = await workerService.getWorkerTransactions(id);
+  return ApiResponse.success(res, { summary: freshData.summary }, 'Transaction deleted successfully');
+});
+
+/**
+ * Get workshop-wide Khata overall summary
+ */
+export const getWorkshopKhataSummary = asyncHandler(async (req, res) => {
+  const summary = await workerService.getWorkshopKhataSummary();
+  return ApiResponse.success(res, summary, 'Workshop Khata summary retrieved');
+});
+
+
