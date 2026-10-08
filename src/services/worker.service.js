@@ -38,13 +38,13 @@ class WorkerService {
     }
 
     try {
-      let sql = 'SELECT id, name, coming_date, going_date FROM workers';
+      let sql = 'SELECT id, name, mobile, aadhar_card, coming_date, going_date FROM workers';
       const conditions = [];
       const params = [];
 
       if (search && search.trim()) {
-        conditions.push('name LIKE ?');
-        params.push(`%${search.trim()}%`);
+        conditions.push('(name LIKE ? OR mobile LIKE ?)');
+        params.push(`%${search.trim()}%`, `%${search.trim()}%`);
       }
 
       if (status === 'active') {
@@ -63,6 +63,8 @@ class WorkerService {
       const result = rows.map((w) => ({
         id: w.id,
         name: w.name,
+        mobile: w.mobile || '',
+        aadhar_card: w.aadhar_card || null,
         coming_date: formatDate(w.coming_date),
         going_date: formatDate(w.going_date),
         status: w.going_date ? 'relieved' : 'active',
@@ -80,7 +82,10 @@ class WorkerService {
 
       if (search && search.trim()) {
         const query = search.trim().toLowerCase();
-        list = list.filter((w) => w.name.toLowerCase().includes(query));
+        list = list.filter((w) =>
+          (w.name && w.name.toLowerCase().includes(query)) ||
+          (w.mobile && w.mobile.toLowerCase().includes(query))
+        );
       }
 
       if (status === 'active') {
@@ -94,6 +99,8 @@ class WorkerService {
       const result = list.map((w) => ({
         id: w.id,
         name: w.name,
+        mobile: w.mobile || '',
+        aadhar_card: w.aadhar_card || null,
         coming_date: formatDate(w.coming_date),
         going_date: formatDate(w.going_date),
         status: w.going_date ? 'relieved' : 'active',
@@ -111,12 +118,17 @@ class WorkerService {
   async getWorkerById(id) {
     const numId = Number(id);
     try {
-      const [rows] = await db.query('SELECT id, name, coming_date, going_date FROM workers WHERE id = ?', [numId]);
+      const [rows] = await db.query(
+        'SELECT id, name, mobile, aadhar_card, coming_date, going_date FROM workers WHERE id = ?',
+        [numId]
+      );
       if (rows && rows.length > 0) {
         const w = rows[0];
         return {
           id: w.id,
           name: w.name,
+          mobile: w.mobile || '',
+          aadhar_card: w.aadhar_card || null,
           coming_date: formatDate(w.coming_date),
           going_date: formatDate(w.going_date),
           status: w.going_date ? 'relieved' : 'active',
@@ -129,6 +141,8 @@ class WorkerService {
       return {
         id: w.id,
         name: w.name,
+        mobile: w.mobile || '',
+        aadhar_card: w.aadhar_card || null,
         coming_date: formatDate(w.coming_date),
         going_date: formatDate(w.going_date),
         status: w.going_date ? 'relieved' : 'active',
@@ -136,8 +150,10 @@ class WorkerService {
     }
   }
 
-  async createWorker({ name, coming_date, going_date = null }) {
+  async createWorker({ name, mobile = '', aadhar_card = null, coming_date, going_date = null }) {
     const sanitizedName = name.trim();
+    const sanitizedMobile = mobile ? String(mobile).trim() : '';
+    const finalAadhar = aadhar_card || null;
     const formattedComingDate = formatDate(coming_date);
     const formattedGoingDate = going_date ? formatDate(going_date) : null;
 
@@ -145,13 +161,15 @@ class WorkerService {
 
     try {
       const [result] = await db.query(
-        'INSERT INTO workers (name, coming_date, going_date) VALUES (?, ?, ?)',
-        [sanitizedName, formattedComingDate, formattedGoingDate]
+        'INSERT INTO workers (name, mobile, aadhar_card, coming_date, going_date) VALUES (?, ?, ?, ?, ?)',
+        [sanitizedName, sanitizedMobile, finalAadhar, formattedComingDate, formattedGoingDate]
       );
       const insertId = result.insertId;
       return {
         id: insertId,
         name: sanitizedName,
+        mobile: sanitizedMobile,
+        aadhar_card: finalAadhar,
         coming_date: formattedComingDate,
         going_date: formattedGoingDate,
         status: formattedGoingDate ? 'relieved' : 'active',
@@ -161,6 +179,8 @@ class WorkerService {
       const newWorker = {
         id: nextId++,
         name: sanitizedName,
+        mobile: sanitizedMobile,
+        aadhar_card: finalAadhar,
         coming_date: formattedComingDate,
         going_date: formattedGoingDate,
         status: formattedGoingDate ? 'relieved' : 'active',
@@ -172,9 +192,10 @@ class WorkerService {
     }
   }
 
-  async updateWorker(id, { name, coming_date, going_date = null }) {
+  async updateWorker(id, { name, mobile = '', aadhar_card = null, coming_date, going_date = null }) {
     const numId = Number(id);
     const sanitizedName = name.trim();
+    const sanitizedMobile = mobile !== undefined ? String(mobile).trim() : '';
     const formattedComingDate = formatDate(coming_date);
     const formattedGoingDate = going_date ? formatDate(going_date) : null;
 
@@ -182,12 +203,14 @@ class WorkerService {
 
     try {
       await db.query(
-        'UPDATE workers SET name = ?, coming_date = ?, going_date = ? WHERE id = ?',
-        [sanitizedName, formattedComingDate, formattedGoingDate, numId]
+        'UPDATE workers SET name = ?, mobile = ?, aadhar_card = ?, coming_date = ?, going_date = ? WHERE id = ?',
+        [sanitizedName, sanitizedMobile, aadhar_card, formattedComingDate, formattedGoingDate, numId]
       );
       return {
         id: numId,
         name: sanitizedName,
+        mobile: sanitizedMobile,
+        aadhar_card,
         coming_date: formattedComingDate,
         going_date: formattedGoingDate,
         status: formattedGoingDate ? 'relieved' : 'active',
@@ -200,6 +223,8 @@ class WorkerService {
       memoryWorkers[index] = {
         ...memoryWorkers[index],
         name: sanitizedName,
+        mobile: sanitizedMobile,
+        aadhar_card: aadhar_card !== undefined ? aadhar_card : memoryWorkers[index].aadhar_card,
         coming_date: formattedComingDate,
         going_date: formattedGoingDate,
         status: formattedGoingDate ? 'relieved' : 'active',

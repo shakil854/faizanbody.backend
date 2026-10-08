@@ -19,16 +19,14 @@ CREATE TABLE IF NOT EXISTS vehicle_models (
 CREATE TABLE IF NOT EXISTS workers (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(150) NOT NULL,
+  mobile VARCHAR(30) NULL,
+  aadhar_card LONGTEXT NULL,
   coming_date DATE NOT NULL,
   going_date DATE NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- Seed initial demo workers
-INSERT INTO workers (name, coming_date, going_date) VALUES
-('Mohammad Faizan', '2025-01-10', NULL),
-('Rashid Ahmed', '2025-02-01', NULL),
-('Ramesh Sharma', '2024-10-15', '2025-03-15')
-ON DUPLICATE KEY UPDATE name=name;
+
+
 

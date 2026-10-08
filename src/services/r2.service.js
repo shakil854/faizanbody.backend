@@ -105,6 +105,70 @@ class R2StorageService {
   }
 
   /**
+   * Upload an Aadhar card photo buffer for a worker to Cloudflare R2 (or local fallback)
+   */
+  async uploadWorkerAadhar({ buffer, originalname, mimetype, size, workerId = 'common' }) {
+    const timestamp = Date.now();
+    const cleanName = (originalname || 'aadhar.jpg').replace(/[^a-zA-Z0-9.-]/g, '_');
+    const key = `workers/${workerId}/${timestamp}_${cleanName}`;
+    const photoId = `aadhar_${timestamp}_${Math.random().toString(36).slice(2, 8)}`;
+
+    if (this.isR2Ready()) {
+      try {
+        const command = new PutObjectCommand({
+          Bucket: config.r2.bucketName,
+          Key: key,
+          Body: buffer,
+          ContentType: mimetype || 'image/jpeg',
+        });
+
+        await this.s3Client.send(command);
+
+        let url;
+        if (config.r2.publicUrl) {
+          const baseUrl = config.r2.publicUrl.replace(/\/+$/, '');
+          url = `${baseUrl}/${key}`;
+        } else {
+          url = `/api/v1/orders/photos/stream?key=${encodeURIComponent(key)}`;
+        }
+
+        return {
+          id: photoId,
+          key,
+          url,
+          storage: 'r2',
+          originalName: originalname,
+          mimeType: mimetype,
+          size,
+          createdAt: new Date().toISOString(),
+        };
+      } catch (r2Error) {
+        console.warn('⚠️ [Cloudflare R2] Aadhar upload failed, falling back to local storage:', r2Error.message);
+      }
+    }
+
+    // Local Disk Fallback
+    const uploadDir = path.join(process.cwd(), 'uploads', 'workers');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    const localFileName = `${timestamp}_${cleanName}`;
+    const filePath = path.join(uploadDir, localFileName);
+    fs.writeFileSync(filePath, buffer);
+
+    return {
+      id: photoId,
+      key: `local:workers/${localFileName}`,
+      url: `/uploads/workers/${localFileName}`,
+      storage: 'local',
+      originalName: originalname,
+      mimeType: mimetype,
+      size,
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  /**
    * Delete a photo from R2 or local storage
    */
   async deletePhoto(rawKey) {

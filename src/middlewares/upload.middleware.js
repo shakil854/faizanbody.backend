@@ -20,4 +20,14 @@ export const uploadOrderPhotos = multer({
   fileFilter,
 });
 
+export const uploadWorkerAadhar = multer({
+  storage,
+  limits: {
+    fileSize: 15 * 1024 * 1024, // 15 MB max
+    files: 1,
+  },
+  fileFilter,
+});
+
 export default uploadOrderPhotos;
+

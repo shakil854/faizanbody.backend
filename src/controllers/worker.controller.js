@@ -1,4 +1,5 @@
 import { workerService } from '../services/worker.service.js';
+import { r2Service } from '../services/r2.service.js';
 import { ApiResponse } from '../utils/apiResponse.js';
 import { ApiError } from '../utils/apiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -19,7 +20,7 @@ export const getWorkerById = asyncHandler(async (req, res) => {
 });
 
 export const createWorker = asyncHandler(async (req, res) => {
-  const { name, coming_date, going_date } = req.body;
+  const { name, mobile, mobile_no, aadhar_card, aadhar_photo, coming_date, going_date } = req.body;
 
   if (!name || !name.trim()) {
     throw ApiError.badRequest('Worker name is required (नाम आवश्यक है)');
@@ -28,8 +29,13 @@ export const createWorker = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('Coming date is required (आने की तारीख आवश्यक है)');
   }
 
+  const finalMobile = mobile !== undefined ? mobile : (mobile_no || '');
+  const finalAadhar = aadhar_card !== undefined ? aadhar_card : (aadhar_photo || null);
+
   const newWorker = await workerService.createWorker({
     name,
+    mobile: finalMobile,
+    aadhar_card: finalAadhar,
     coming_date,
     going_date: going_date || null,
   });
@@ -39,7 +45,7 @@ export const createWorker = asyncHandler(async (req, res) => {
 
 export const updateWorker = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { name, coming_date, going_date } = req.body;
+  const { name, mobile, mobile_no, aadhar_card, aadhar_photo, coming_date, going_date } = req.body;
 
   if (!name || !name.trim()) {
     throw ApiError.badRequest('Worker name is required');
@@ -48,8 +54,13 @@ export const updateWorker = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('Coming date is required');
   }
 
+  const finalMobile = mobile !== undefined ? mobile : (mobile_no !== undefined ? mobile_no : '');
+  const finalAadhar = aadhar_card !== undefined ? aadhar_card : (aadhar_photo !== undefined ? aadhar_photo : null);
+
   const updated = await workerService.updateWorker(id, {
     name,
+    mobile: finalMobile,
+    aadhar_card: finalAadhar,
     coming_date,
     going_date: going_date || null,
   });
@@ -61,6 +72,28 @@ export const updateWorker = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, updated, 'Worker updated successfully');
 });
 
+/**
+ * Upload single Aadhar card photo (via camera click or gallery file)
+ */
+export const uploadAadharPhoto = asyncHandler(async (req, res) => {
+  const file = req.file || (req.files && req.files[0]);
+
+  if (!file) {
+    throw ApiError.badRequest('Please select or capture an Aadhar card photo');
+  }
+
+  const workerId = req.body.workerId || 'temp';
+  const uploaded = await r2Service.uploadWorkerAadhar({
+    buffer: file.buffer,
+    originalname: file.originalname,
+    mimetype: file.mimetype,
+    size: file.size,
+    workerId,
+  });
+
+  return ApiResponse.success(res, uploaded, 'Aadhar card photo uploaded successfully');
+});
+
 export const deleteWorker = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const deleted = await workerService.deleteWorker(id);
@@ -69,3 +102,4 @@ export const deleteWorker = asyncHandler(async (req, res) => {
   }
   return ApiResponse.success(res, { id: Number(id) }, 'Worker deleted successfully');
 });
+
