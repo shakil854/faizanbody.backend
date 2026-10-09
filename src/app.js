@@ -10,8 +10,20 @@ import path from 'path';
 
 const app = express();
 
-// Serve local uploads folder if fallback used
-app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+// Serve local uploads folder with complete CORS headers so mobile app & browsers can fetch blobs
+app.use(
+  '/uploads',
+  cors(),
+  (req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', '*');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+    next();
+  },
+  express.static(path.join(process.cwd(), 'uploads'))
+);
 
 // ==========================================
 // Global Middlewares
