@@ -54,6 +54,7 @@ function formatOrderRow(row) {
       redium: { value: '', boxes: ['', '', ''], done: false },
       painting: { value: '', boxes: ['', '', ''], done: false },
       vayring: { value: '', boxes: ['', '', ''], done: false },
+      glass: { value: '', boxes: ['', '', ''], done: false },
     }),
     machro: safeParseJson(row.machro, { boxes: ['', '', ''], items: {} }),
     md_signature: row.md_signature || '',
