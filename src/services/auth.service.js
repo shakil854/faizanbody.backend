@@ -40,7 +40,7 @@ export const authService = {
     }
 
     const [rows] = await db.query(
-      'SELECT id, name, email, mobile, password, role FROM users WHERE LOWER(email) = ? OR mobile = ? LIMIT 1',
+      'SELECT id, name, email, mobile, password, role, permissions, is_active FROM users WHERE LOWER(email) = ? OR mobile = ? LIMIT 1',
       [rawIdentifier.toLowerCase(), rawIdentifier]
     );
 
@@ -49,6 +49,11 @@ export const authService = {
     }
 
     const user = rows[0];
+
+    if (user.is_active === 0 || user.is_active === false) {
+      throw { status: 403, message: 'Your account has been deactivated. Please contact your administrator.' };
+    }
+
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
@@ -56,6 +61,17 @@ export const authService = {
     }
 
     const token = generateToken(user);
+
+    let parsedPermissions = [];
+    try {
+      if (typeof user.permissions === 'string' && user.permissions.trim()) {
+        parsedPermissions = JSON.parse(user.permissions);
+      } else if (Array.isArray(user.permissions)) {
+        parsedPermissions = user.permissions;
+      }
+    } catch {
+      parsedPermissions = [];
+    }
 
     return {
       token,
@@ -65,6 +81,8 @@ export const authService = {
         email: user.email,
         mobile: user.mobile,
         role: user.role,
+        permissions: parsedPermissions,
+        is_active: user.is_active !== 0,
       },
     };
   },
@@ -74,7 +92,7 @@ export const authService = {
    */
   async getMe(userId) {
     const [rows] = await db.query(
-      'SELECT id, name, email, mobile, role, created_at FROM users WHERE id = ? LIMIT 1',
+      'SELECT id, name, email, mobile, role, permissions, is_active, created_at FROM users WHERE id = ? LIMIT 1',
       [userId]
     );
 
@@ -82,7 +100,23 @@ export const authService = {
       throw { status: 404, message: 'User not found.' };
     }
 
-    return rows[0];
+    const user = rows[0];
+    let parsedPermissions = [];
+    try {
+      if (typeof user.permissions === 'string' && user.permissions.trim()) {
+        parsedPermissions = JSON.parse(user.permissions);
+      } else if (Array.isArray(user.permissions)) {
+        parsedPermissions = user.permissions;
+      }
+    } catch {
+      parsedPermissions = [];
+    }
+
+    return {
+      ...user,
+      permissions: parsedPermissions,
+      is_active: user.is_active !== 0,
+    };
   },
 
   /**

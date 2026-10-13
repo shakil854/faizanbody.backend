@@ -32,7 +32,7 @@ export async function verifyToken(req, res, next) {
 
     // Verify that the user still exists in the database
     const [rows] = await db.query(
-      'SELECT id, name, email, role FROM users WHERE id = ? LIMIT 1',
+      'SELECT id, name, email, mobile, role, permissions, is_active FROM users WHERE id = ? LIMIT 1',
       [decoded.id]
     );
 
@@ -43,7 +43,31 @@ export async function verifyToken(req, res, next) {
       });
     }
 
-    req.user = rows[0];
+    const dbUser = rows[0];
+
+    // Check if account is suspended/deactivated
+    if (dbUser.is_active === 0 || dbUser.is_active === false) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account has been deactivated. Please contact your administrator.',
+      });
+    }
+
+    let parsedPermissions = [];
+    try {
+      if (typeof dbUser.permissions === 'string' && dbUser.permissions.trim()) {
+        parsedPermissions = JSON.parse(dbUser.permissions);
+      } else if (Array.isArray(dbUser.permissions)) {
+        parsedPermissions = dbUser.permissions;
+      }
+    } catch {
+      parsedPermissions = [];
+    }
+
+    req.user = {
+      ...dbUser,
+      permissions: parsedPermissions,
+    };
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
@@ -86,7 +110,42 @@ export function authorizeRoles(...allowedRoles) {
   };
 }
 
+/**
+ * ====================================================================
+ * 🛡️ Granular Permission Authorization Middleware
+ * ====================================================================
+ * Verifies if user has specific permission (Admins bypass all checks).
+ * ====================================================================
+ */
+export function requirePermission(permission) {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required.',
+      });
+    }
+
+    // Admin has unconditional master access
+    if (req.user.role === 'admin') {
+      return next();
+    }
+
+    const userPerms = Array.isArray(req.user.permissions) ? req.user.permissions : [];
+
+    if (!userPerms.includes(permission)) {
+      return res.status(403).json({
+        success: false,
+        message: `Access denied. You do not have permission to perform this action (${permission}).`,
+      });
+    }
+
+    next();
+  };
+}
+
 export default {
   verifyToken,
   authorizeRoles,
+  requirePermission,
 };

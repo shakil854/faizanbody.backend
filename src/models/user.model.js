@@ -11,6 +11,8 @@ export const UserModel = {
     mobile: 'VARCHAR(20) NULL',
     password: 'VARCHAR(255) NOT NULL',
     role: "ENUM('admin', 'user') NOT NULL DEFAULT 'user'",
+    permissions: 'LONGTEXT NULL',
+    is_active: 'TINYINT(1) NOT NULL DEFAULT 1',
     reset_otp: 'VARCHAR(10) NULL',
     otp_expires_at: 'DATETIME NULL',
     created_at: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',

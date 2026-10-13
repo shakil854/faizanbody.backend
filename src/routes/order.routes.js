@@ -11,7 +11,7 @@ import {
   deleteAllPhotos,
   streamPhoto,
 } from '../controllers/order.controller.js';
-import { verifyToken } from '../middlewares/auth.middleware.js';
+import { verifyToken, requirePermission } from '../middlewares/auth.middleware.js';
 import { uploadOrderPhotos } from '../middlewares/upload.middleware.js';
 
 const router = Router();
@@ -19,27 +19,27 @@ const router = Router();
 // Stream photo directly (accessible for displaying images)
 router.get('/orders/photos/stream', streamPhoto);
 
-// CRUD Operations: Available to authenticated users
+// CRUD Operations: Available to users with corresponding permissions
 router.route('/orders')
-  .get(verifyToken, getOrders)
-  .post(verifyToken, createOrder);
+  .get(verifyToken, requirePermission('orders:view'), getOrders)
+  .post(verifyToken, requirePermission('orders:create'), createOrder);
 
 router.route('/orders/:id')
-  .get(verifyToken, getOrderById)
-  .put(verifyToken, updateOrder)
-  .delete(verifyToken, deleteOrder);
+  .get(verifyToken, requirePermission('orders:view'), getOrderById)
+  .put(verifyToken, requirePermission('orders:edit'), updateOrder)
+  .delete(verifyToken, requirePermission('orders:delete'), deleteOrder);
 
-// Quick toggle task checkbox (accessible by all authenticated users)
+// Quick toggle task checkbox (permission: orders:tasks or orders:edit)
 router.route('/orders/:id/toggle-task')
-  .patch(verifyToken, toggleTaskDone);
+  .patch(verifyToken, requirePermission('orders:tasks'), toggleTaskDone);
 
 // Photo upload & delete for work orders
 router.route('/orders/:id/photos')
-  .post(verifyToken, uploadOrderPhotos.array('photos', 10), uploadPhotos)
-  .delete(verifyToken, deleteAllPhotos);
+  .post(verifyToken, requirePermission('orders:photos'), uploadOrderPhotos.array('photos', 10), uploadPhotos)
+  .delete(verifyToken, requirePermission('orders:photos'), deleteAllPhotos);
 
 router.route('/orders/:id/photos/:photoId')
-  .delete(verifyToken, deletePhoto);
+  .delete(verifyToken, requirePermission('orders:photos'), deletePhoto);
 
 export default router;
 
