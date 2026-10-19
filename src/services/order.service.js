@@ -42,6 +42,7 @@ function formatOrderRow(row) {
     owner_name: row.owner_name || '',
     mobile_number: row.mobile_number || '',
     entry_date: formatDate(row.entry_date),
+    delivery_date: formatDate(row.delivery_date),
     truck_chassis_no: row.truck_chassis_no || '',
     shade_no: row.shade_no || '',
     status: row.status || 'In Progress',
@@ -143,6 +144,7 @@ class OrderService {
     const orderNo = data.order_no || `WO-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
     const formattedOrderDate = formatDate(data.order_date || new Date());
     const formattedEntryDate = formatDate(data.entry_date || new Date());
+    const formattedDeliveryDate = data.delivery_date ? formatDate(data.delivery_date) : null;
 
     const cabinJson = JSON.stringify(data.cabin_work || { boxes: ['', '', ''], items: {} });
     const insideJson = JSON.stringify(data.inside_work || { boxes: ['', '', ''], items: {} });
@@ -163,10 +165,10 @@ class OrderService {
       const [result] = await db.query(
         `INSERT INTO work_orders (
           order_no, order_date, condition_text, owner_name, mobile_number,
-          entry_date, truck_chassis_no, shade_no, status,
+          entry_date, delivery_date, truck_chassis_no, shade_no, status,
           cabin_work, inside_work, body_work, accessories, finishing_work, machro,
           md_signature, party_owner_signature, notes, photos
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           orderNo,
           formattedOrderDate,
@@ -174,6 +176,7 @@ class OrderService {
           data.owner_name || '',
           data.mobile_number || '',
           formattedEntryDate,
+          formattedDeliveryDate,
           data.truck_chassis_no || '',
           data.shade_no || '',
           data.status || 'In Progress',
@@ -201,6 +204,7 @@ class OrderService {
         owner_name: data.owner_name || '',
         mobile_number: data.mobile_number || '',
         entry_date: formattedEntryDate,
+        delivery_date: formattedDeliveryDate,
         truck_chassis_no: data.truck_chassis_no || '',
         shade_no: data.shade_no || '',
         status: data.status || 'In Progress',
@@ -234,6 +238,12 @@ class OrderService {
 
     const formattedOrderDate = formatDate(data.order_date ?? existing.order_date);
     const formattedEntryDate = formatDate(data.entry_date ?? existing.entry_date);
+    const formattedDeliveryDate =
+      data.delivery_date !== undefined
+        ? data.delivery_date
+          ? formatDate(data.delivery_date)
+          : null
+        : existing.delivery_date;
 
     const cabinJson = JSON.stringify(data.cabin_work ?? existing.cabin_work);
     const insideJson = JSON.stringify(data.inside_work ?? existing.inside_work);
@@ -252,6 +262,7 @@ class OrderService {
           owner_name = ?,
           mobile_number = ?,
           entry_date = ?,
+          delivery_date = ?,
           truck_chassis_no = ?,
           shade_no = ?,
           status = ?,
@@ -273,6 +284,7 @@ class OrderService {
           data.owner_name ?? existing.owner_name,
           data.mobile_number ?? existing.mobile_number,
           formattedEntryDate,
+          formattedDeliveryDate,
           data.truck_chassis_no ?? existing.truck_chassis_no,
           data.shade_no ?? existing.shade_no,
           data.status ?? existing.status,
@@ -303,6 +315,7 @@ class OrderService {
         photos: data.photos ?? existing.photos ?? [],
         order_date: formattedOrderDate,
         entry_date: formattedEntryDate,
+        delivery_date: formattedDeliveryDate,
         updated_at: new Date().toISOString(),
       };
       return formatOrderRow(memoryOrders[index]);
