@@ -8,6 +8,7 @@ import {
   StockItemModel,
   StockTransactionModel,
 } from './stock.model.js';
+import { SettingModel } from './setting.model.js';
 
 export const models = [
   WorkerModel,
@@ -18,6 +19,7 @@ export const models = [
   StockCategoryModel,
   StockItemModel,
   StockTransactionModel,
+  SettingModel,
 ];
 
 export {
@@ -29,6 +31,7 @@ export {
   StockCategoryModel,
   StockItemModel,
   StockTransactionModel,
+  SettingModel,
 };
 
 export default models;

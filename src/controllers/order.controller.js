@@ -155,3 +155,21 @@ export const streamPhoto = asyncHandler(async (req, res) => {
   }
 });
 
+/**
+ * Get current Order Badge Alert color threshold settings
+ */
+export const getOrderBadgeSettings = asyncHandler(async (req, res) => {
+  const { settingService } = await import('../services/setting.service.js');
+  const settings = await settingService.getOrderBadgeSettings();
+  return ApiResponse.success(res, settings, 'Order badge settings retrieved');
+});
+
+/**
+ * Update Order Badge Alert color threshold settings
+ */
+export const updateOrderBadgeSettings = asyncHandler(async (req, res) => {
+  const { settingService } = await import('../services/setting.service.js');
+  const updated = await settingService.saveOrderBadgeSettings(req.body);
+  return ApiResponse.success(res, updated, 'Order badge settings updated successfully');
+});
+
