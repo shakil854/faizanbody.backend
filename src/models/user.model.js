@@ -15,6 +15,8 @@ export const UserModel = {
     is_active: 'TINYINT(1) NOT NULL DEFAULT 1',
     reset_otp: 'VARCHAR(10) NULL',
     otp_expires_at: 'DATETIME NULL',
+    login_otp: 'VARCHAR(10) NULL',
+    login_otp_expires_at: 'DATETIME NULL',
     created_at: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
     updated_at: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
   },

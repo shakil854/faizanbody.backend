@@ -53,6 +53,23 @@ export async function verifyToken(req, res, next) {
       });
     }
 
+    // Check if session has been remotely revoked by admin
+    if (decoded.sessionId) {
+      const [sessRows] = await db.query(
+        'SELECT id, is_active FROM user_sessions WHERE id = ? LIMIT 1',
+        [decoded.sessionId]
+      );
+      if (!sessRows || sessRows.length === 0 || sessRows[0].is_active === 0) {
+        return res.status(401).json({
+          success: false,
+          sessionRevoked: true,
+          message: 'Your device session has been logged out by the administrator.',
+        });
+      }
+      // Update last active time non-blockingly
+      db.query('UPDATE user_sessions SET last_active_at = NOW() WHERE id = ?', [decoded.sessionId]).catch(() => {});
+    }
+
     let parsedPermissions = [];
     try {
       if (typeof dbUser.permissions === 'string' && dbUser.permissions.trim()) {
@@ -68,6 +85,7 @@ export async function verifyToken(req, res, next) {
       ...dbUser,
       permissions: parsedPermissions,
     };
+    req.sessionId = decoded.sessionId || null;
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {

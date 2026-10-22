@@ -9,6 +9,7 @@ import {
   StockTransactionModel,
 } from './stock.model.js';
 import { SettingModel } from './setting.model.js';
+import { SessionModel } from './session.model.js';
 
 export const models = [
   WorkerModel,
@@ -20,6 +21,7 @@ export const models = [
   StockItemModel,
   StockTransactionModel,
   SettingModel,
+  SessionModel,
 ];
 
 export {
@@ -32,6 +34,7 @@ export {
   StockItemModel,
   StockTransactionModel,
   SettingModel,
+  SessionModel,
 };
 
 export default models;

@@ -3,11 +3,12 @@ import jwt from 'jsonwebtoken';
 import db from '../config/db.js';
 import { config } from '../config/env.js';
 import { sendOtpEmail } from './email.service.js';
+import { createSession } from './session.service.js';
 
 /**
- * Generate JWT token for user
+ * Generate JWT token for user, embedding sessionId for remote device tracking
  */
-const generateToken = (user) => {
+const generateToken = (user, sessionId = null) => {
   return jwt.sign(
     {
       id: user.id,
@@ -15,6 +16,7 @@ const generateToken = (user) => {
       mobile: user.mobile || null,
       role: user.role,
       name: user.name,
+      sessionId: sessionId || null,
     },
     config.jwt.secret,
     { expiresIn: config.jwt.expiresIn }
@@ -30,9 +32,10 @@ const generateOtp = () => {
 
 export const authService = {
   /**
-   * Login user with Email OR Mobile and Password
+   * Step 1: Login user with Email OR Mobile and Password
+   * Automatically generates 6-digit OTP and emails it to the user's registered email
    */
-  async login({ identifier, email, mobile, password }) {
+  async login({ identifier, email, mobile, password, req }) {
     const rawIdentifier = (identifier || email || mobile || '').trim();
 
     if (!rawIdentifier || !password) {
@@ -60,7 +63,44 @@ export const authService = {
       throw { status: 401, message: 'Invalid email/mobile or password.' };
     }
 
-    const token = generateToken(user);
+    // If user has a registered email, dispatch 6-digit OTP for 2-step verification
+    if (user.email && user.email.includes('@')) {
+      const otp = generateOtp();
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+      await db.query(
+        'UPDATE users SET login_otp = ?, login_otp_expires_at = ? WHERE id = ?',
+        [otp, expiresAt, user.id]
+      );
+
+      // Send OTP to registered email
+      try {
+        await sendOtpEmail({
+          toEmail: user.email,
+          userName: user.name,
+          otp,
+          type: 'login',
+        });
+      } catch (emailErr) {
+        console.warn('⚠️ [Login OTP Dispatch Notice]:', emailErr.message);
+      }
+
+      const [namePart, domainPart] = user.email.split('@');
+      const maskedEmail = namePart.length > 2
+        ? `${namePart.slice(0, 2)}***@${domainPart}`
+        : `${namePart}***@${domainPart}`;
+
+      return {
+        requiresOtp: true,
+        userId: user.id,
+        email: maskedEmail,
+        message: `A 6-digit OTP code has been sent to your registered email (${maskedEmail}).`,
+      };
+    }
+
+    // Direct fallback if no email exists
+    const session = await createSession({ userId: user.id, req });
+    const token = generateToken(user, session.sessionId);
 
     let parsedPermissions = [];
     try {
@@ -75,6 +115,7 @@ export const authService = {
 
     return {
       token,
+      sessionId: session.sessionId,
       user: {
         id: user.id,
         name: user.name,
@@ -84,6 +125,113 @@ export const authService = {
         permissions: parsedPermissions,
         is_active: user.is_active !== 0,
       },
+    };
+  },
+
+  /**
+   * Step 2: Verify Login OTP, establish active device session, and issue JWT
+   */
+  async verifyLoginOtp({ userId, otp, req }) {
+    if (!userId || !otp) {
+      throw { status: 400, message: 'User ID and OTP are required.' };
+    }
+
+    const [rows] = await db.query(
+      'SELECT id, name, email, mobile, role, permissions, is_active, login_otp, login_otp_expires_at FROM users WHERE id = ? LIMIT 1',
+      [userId]
+    );
+
+    if (!rows || rows.length === 0) {
+      throw { status: 404, message: 'User not found.' };
+    }
+
+    const user = rows[0];
+
+    if (!user.login_otp || user.login_otp !== otp.trim()) {
+      throw { status: 400, message: 'Invalid OTP code. Please enter the correct code sent to your email.' };
+    }
+
+    if (!user.login_otp_expires_at || new Date() > new Date(user.login_otp_expires_at)) {
+      throw { status: 400, message: 'OTP has expired. Please click resend to get a new code.' };
+    }
+
+    // Clear login OTP once used
+    await db.query('UPDATE users SET login_otp = NULL, login_otp_expires_at = NULL WHERE id = ?', [user.id]);
+
+    // Create tracked session record for this device
+    const session = await createSession({ userId: user.id, req });
+
+    // Generate JWT token with sessionId
+    const token = generateToken(user, session.sessionId);
+
+    let parsedPermissions = [];
+    try {
+      if (typeof user.permissions === 'string' && user.permissions.trim()) {
+        parsedPermissions = JSON.parse(user.permissions);
+      } else if (Array.isArray(user.permissions)) {
+        parsedPermissions = user.permissions;
+      }
+    } catch {
+      parsedPermissions = [];
+    }
+
+    return {
+      token,
+      sessionId: session.sessionId,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        mobile: user.mobile,
+        role: user.role,
+        permissions: parsedPermissions,
+        is_active: user.is_active !== 0,
+      },
+      message: 'Login successful!',
+    };
+  },
+
+  /**
+   * Resend Login OTP
+   */
+  async resendLoginOtp({ userId }) {
+    if (!userId) {
+      throw { status: 400, message: 'User ID is required.' };
+    }
+
+    const [rows] = await db.query(
+      'SELECT id, name, email FROM users WHERE id = ? LIMIT 1',
+      [userId]
+    );
+
+    if (!rows || rows.length === 0) {
+      throw { status: 404, message: 'User not found.' };
+    }
+
+    const user = rows[0];
+    const otp = generateOtp();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    await db.query(
+      'UPDATE users SET login_otp = ?, login_otp_expires_at = ? WHERE id = ?',
+      [otp, expiresAt, user.id]
+    );
+
+    await sendOtpEmail({
+      toEmail: user.email,
+      userName: user.name,
+      otp,
+      type: 'login',
+    });
+
+    const [namePart, domainPart] = user.email.split('@');
+    const maskedEmail = namePart.length > 2
+      ? `${namePart.slice(0, 2)}***@${domainPart}`
+      : `${namePart}***@${domainPart}`;
+
+    return {
+      message: `A fresh 6-digit OTP code has been sent to your registered email (${maskedEmail}).`,
+      email: maskedEmail,
     };
   },
 

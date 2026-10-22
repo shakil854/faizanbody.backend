@@ -1,4 +1,5 @@
 import { authService } from '../services/auth.service.js';
+import * as sessionService from '../services/session.service.js';
 import { ApiResponse } from '../utils/apiResponse.js';
 import { ApiError } from '../utils/apiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -11,8 +12,55 @@ export const login = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('Email or mobile number and password are required');
   }
 
-  const result = await authService.login({ identifier: loginId, password });
-  return ApiResponse.success(res, result, 'Login successful');
+  const result = await authService.login({ identifier: loginId, password, req });
+  return ApiResponse.success(res, result, result.message || 'Login processed');
+});
+
+export const verifyLoginOtp = asyncHandler(async (req, res) => {
+  const { userId, otp } = req.body;
+
+  if (!userId || !otp) {
+    throw ApiError.badRequest('User ID and 6-digit OTP code are required');
+  }
+
+  const result = await authService.verifyLoginOtp({ userId, otp, req });
+  return ApiResponse.success(res, result, result.message || 'Login verified successfully');
+});
+
+export const resendLoginOtp = asyncHandler(async (req, res) => {
+  const { userId } = req.body;
+
+  if (!userId) {
+    throw ApiError.badRequest('User ID is required');
+  }
+
+  const result = await authService.resendLoginOtp({ userId });
+  return ApiResponse.success(res, result, result.message || 'OTP resent successfully');
+});
+
+export const getAllSessions = asyncHandler(async (req, res) => {
+  const sessions = await sessionService.getAllSessions();
+  return ApiResponse.success(res, sessions, 'Active sessions retrieved successfully');
+});
+
+export const revokeSession = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!id) {
+    throw ApiError.badRequest('Session ID is required');
+  }
+
+  await sessionService.revokeSession(id);
+  return ApiResponse.success(res, { id: Number(id) }, 'Device session successfully logged out');
+});
+
+export const revokeUserSessions = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+  if (!userId) {
+    throw ApiError.badRequest('User ID is required');
+  }
+
+  const count = await sessionService.revokeAllUserSessions(userId);
+  return ApiResponse.success(res, { count }, 'All sessions for this user logged out');
 });
 
 export const getMe = asyncHandler(async (req, res) => {

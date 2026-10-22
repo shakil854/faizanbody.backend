@@ -59,18 +59,22 @@ const getTransporter = () => {
  */
 export async function sendOtpEmail({ toEmail, userName = 'User', otp, type = 'forgot_password' }) {
   // Clean, professional subject without emojis or raw OTP digits (prevents Gmail spam classification)
-  const subject = type === 'forgot_password'
+  const subject = type === 'login'
+    ? 'Faizan Body Account - Login Verification Code'
+    : type === 'forgot_password'
     ? 'Faizan Body Account - Password Reset Verification Code'
     : 'Faizan Body Account - Security Verification Code';
+
+  const actionText = type === 'login' ? 'login to' : 'verify';
 
   const plainText = [
     `Hello ${userName},`,
     '',
-    `Your verification code for Faizan Body is: ${otp}`,
+    `Your login verification code for Faizan Body is: ${otp}`,
     '',
-    'This code is valid for 10 minutes. Please enter this code in the application to complete your request.',
+    'This code is valid for 10 minutes. Please enter this code in the application to complete your sign in.',
     '',
-    'If you did not make this request, you can safely ignore this email.',
+    'If you did not make this login request, please change your password immediately or contact your administrator.',
     '',
     'Best regards,',
     'Faizan Body Build Team'
@@ -102,10 +106,12 @@ export async function sendOtpEmail({ toEmail, userName = 'User', otp, type = 'fo
         <!-- Content Body -->
         <tr>
           <td style="padding: 32px 30px;">
-            <h2 style="margin: 0 0 16px; font-size: 20px; font-weight: 700; color: #111827;">Verification Code</h2>
+            <h2 style="margin: 0 0 16px; font-size: 20px; font-weight: 700; color: #111827;">${type === 'login' ? 'Login Verification Code' : 'Verification Code'}</h2>
             <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.5; color: #4b5563;">
               Hello ${userName},<br><br>
-              We received a request to verify your <strong>Faizan Body</strong> account. Use the code below to complete your verification:
+              ${type === 'login' 
+                ? 'We received a sign-in attempt for your <strong>Faizan Body</strong> account. Enter the 6-digit OTP code below to verify your identity and finish logging in:' 
+                : 'We received a request to verify your <strong>Faizan Body</strong> account. Use the code below to complete your verification:'}
             </p>
             
             <!-- OTP Box -->
