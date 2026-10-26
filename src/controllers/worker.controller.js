@@ -146,6 +146,42 @@ export const addWorkerTransaction = asyncHandler(async (req, res) => {
 });
 
 /**
+ * Update an existing Khata transaction entry
+ */
+export const updateWorkerTransaction = asyncHandler(async (req, res) => {
+  const { id, transactionId } = req.params;
+  const { type, amount, date, notes, payment_mode } = req.body;
+
+  if (!type || !['salary', 'upad', 'payment'].includes(type)) {
+    throw ApiError.badRequest('Valid transaction type (salary, upad, payment) is required');
+  }
+
+  const numAmount = Number(amount);
+  if (isNaN(numAmount) || numAmount <= 0) {
+    throw ApiError.badRequest('Amount must be a positive number (रुपये आवश्यक है)');
+  }
+
+  const updatedTx = await workerService.updateWorkerTransaction(transactionId, {
+    type,
+    amount: numAmount,
+    date,
+    notes,
+    payment_mode,
+  });
+
+  if (!updatedTx) {
+    throw ApiError.notFound('Transaction not found');
+  }
+
+  const freshData = await workerService.getWorkerTransactions(id);
+
+  return ApiResponse.success(res, {
+    transaction: updatedTx,
+    summary: freshData.summary,
+  }, 'Transaction updated successfully');
+});
+
+/**
  * Delete a specific Khata transaction entry
  */
 export const deleteWorkerTransaction = asyncHandler(async (req, res) => {

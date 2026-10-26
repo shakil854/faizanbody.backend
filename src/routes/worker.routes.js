@@ -8,6 +8,7 @@ import {
   uploadAadharPhoto,
   getWorkerTransactions,
   addWorkerTransaction,
+  updateWorkerTransaction,
   deleteWorkerTransaction,
   getWorkshopKhataSummary,
 } from '../controllers/worker.controller.js';
@@ -33,12 +34,9 @@ router.route('/workers/:id/transactions')
   .get(verifyToken, requirePermission('workers:khata'), getWorkerTransactions)
   .post(verifyToken, requirePermission('workers:khata'), addWorkerTransaction);
 
-router.delete(
-  '/workers/:id/transactions/:transactionId',
-  verifyToken,
-  requirePermission('workers:khata'),
-  deleteWorkerTransaction
-);
+router.route('/workers/:id/transactions/:transactionId')
+  .put(verifyToken, requirePermission('workers:khata'), updateWorkerTransaction)
+  .delete(verifyToken, requirePermission('workers:khata'), deleteWorkerTransaction);
 
 // Workers CRUD operations
 router.route('/workers')

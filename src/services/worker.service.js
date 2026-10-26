@@ -422,6 +422,53 @@ class WorkerService {
   }
 
   /**
+   * Update an existing Khata transaction
+   */
+  async updateWorkerTransaction(transactionId, { type, amount, date, notes = '', payment_mode = 'Cash' }) {
+    const numId = Number(transactionId);
+    const numAmount = Number(amount);
+    const formattedDate = formatDate(date) || new Date().toISOString().split('T')[0];
+    const sanitizedNotes = notes !== undefined ? String(notes).trim() : '';
+    const sanitizedMode = payment_mode ? String(payment_mode).trim() : 'Cash';
+
+    invalidateCache();
+
+    try {
+      const [result] = await db.query(
+        'UPDATE worker_transactions SET type = ?, amount = ?, date = ?, notes = ?, payment_mode = ? WHERE id = ?',
+        [type, numAmount, formattedDate, sanitizedNotes, sanitizedMode, numId]
+      );
+
+      if (result.affectedRows === 0) {
+        return null;
+      }
+
+      const [rows] = await db.query('SELECT * FROM worker_transactions WHERE id = ?', [numId]);
+      return rows[0] || {
+        id: numId,
+        type,
+        amount: numAmount,
+        date: formattedDate,
+        notes: sanitizedNotes,
+        payment_mode: sanitizedMode,
+      };
+    } catch (error) {
+      console.warn('⚠️ [WorkerService DB Warning - Using Memory Store for Transaction Update]:', error.message);
+      const idx = memoryTransactions.findIndex((t) => t.id === numId);
+      if (idx === -1) return null;
+      memoryTransactions[idx] = {
+        ...memoryTransactions[idx],
+        type,
+        amount: numAmount,
+        date: formattedDate,
+        notes: sanitizedNotes,
+        payment_mode: sanitizedMode,
+      };
+      return memoryTransactions[idx];
+    }
+  }
+
+  /**
    * Delete a transaction record
    */
   async deleteWorkerTransaction(transactionId) {
