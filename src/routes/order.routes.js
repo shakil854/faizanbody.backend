@@ -12,8 +12,10 @@ import {
   streamPhoto,
   getOrderBadgeSettings,
   updateOrderBadgeSettings,
+  getOrderDropdownOptions,
+  updateOrderDropdownOptions,
 } from '../controllers/order.controller.js';
-import { verifyToken, requirePermission } from '../middlewares/auth.middleware.js';
+import { verifyToken, requirePermission, requireAnyPermission } from '../middlewares/auth.middleware.js';
 import { uploadOrderPhotos } from '../middlewares/upload.middleware.js';
 
 const router = Router();
@@ -25,6 +27,11 @@ router.get('/orders/photos/stream', streamPhoto);
 router.route('/orders/badge-settings')
   .get(verifyToken, getOrderBadgeSettings)
   .put(verifyToken, requirePermission('orders:edit'), updateOrderBadgeSettings);
+
+// Order Custom Dropdown Options (synced to backend)
+router.route('/orders/dropdown-options')
+  .get(verifyToken, getOrderDropdownOptions)
+  .put(verifyToken, requireAnyPermission('orders:edit', 'orders:create'), updateOrderDropdownOptions);
 
 // CRUD Operations: Available to users with corresponding permissions
 router.route('/orders')

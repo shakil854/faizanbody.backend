@@ -76,6 +76,39 @@ export const settingService = {
     );
     return cleanSettings;
   },
+
+  /**
+   * Get custom order dropdown options
+   */
+  async getOrderDropdownOptions() {
+    const saved = await this.getSetting('order_dropdown_options', {});
+    return typeof saved === 'object' && saved !== null && !Array.isArray(saved) ? saved : {};
+  },
+
+  /**
+   * Save custom order dropdown options
+   */
+  async saveOrderDropdownOptions(options) {
+    if (!options || typeof options !== 'object' || Array.isArray(options)) {
+      throw new Error('Options must be an object with field keys mapped to option arrays');
+    }
+
+    const cleaned = {};
+    for (const [key, list] of Object.entries(options)) {
+      if (Array.isArray(list)) {
+        cleaned[key] = list
+          .map((item) => (typeof item === 'string' ? item.trim() : ''))
+          .filter(Boolean);
+      }
+    }
+
+    await this.setSetting(
+      'order_dropdown_options',
+      cleaned,
+      'Custom options for work order dropdown fields'
+    );
+    return cleaned;
+  },
 };
 
 export default settingService;

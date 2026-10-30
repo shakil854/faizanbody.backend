@@ -173,3 +173,21 @@ export const updateOrderBadgeSettings = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, updated, 'Order badge settings updated successfully');
 });
 
+/**
+ * Get custom dropdown options for work orders
+ */
+export const getOrderDropdownOptions = asyncHandler(async (req, res) => {
+  const { settingService } = await import('../services/setting.service.js');
+  const options = await settingService.getOrderDropdownOptions();
+  return ApiResponse.success(res, options, 'Order dropdown options retrieved');
+});
+
+/**
+ * Update custom dropdown options for work orders
+ */
+export const updateOrderDropdownOptions = asyncHandler(async (req, res) => {
+  const { settingService } = await import('../services/setting.service.js');
+  const updated = await settingService.saveOrderDropdownOptions(req.body);
+  return ApiResponse.success(res, updated, 'Order dropdown options updated successfully');
+});
+

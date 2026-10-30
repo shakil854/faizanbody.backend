@@ -162,8 +162,43 @@ export function requirePermission(permission) {
   };
 }
 
+/**
+ * ====================================================================
+ * 🛡️ Multiple Permission Authorization Middleware
+ * ====================================================================
+ * Passes if user has ANY of the specified permissions (Admins bypass all).
+ * ====================================================================
+ */
+export function requireAnyPermission(...permissions) {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required.',
+      });
+    }
+
+    if (req.user.role === 'admin') {
+      return next();
+    }
+
+    const userPerms = Array.isArray(req.user.permissions) ? req.user.permissions : [];
+    const hasAny = permissions.some((perm) => userPerms.includes(perm));
+
+    if (!hasAny) {
+      return res.status(403).json({
+        success: false,
+        message: `Access denied. Requires one of permissions: [${permissions.join(', ')}].`,
+      });
+    }
+
+    next();
+  };
+}
+
 export default {
   verifyToken,
   authorizeRoles,
   requirePermission,
+  requireAnyPermission,
 };
