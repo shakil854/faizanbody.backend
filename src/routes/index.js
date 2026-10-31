@@ -6,6 +6,7 @@ import orderRoutes from './order.routes.js';
 import authRoutes from './auth.routes.js';
 import stockRoutes from './stock.routes.js';
 import userRoutes from './user.routes.js';
+import quotationRoutes from './quotation.routes.js';
 
 const router = Router();
 
@@ -17,6 +18,7 @@ router.use('/', orderRoutes);
 router.use('/', authRoutes);
 router.use('/', stockRoutes);
 router.use('/', userRoutes);
+router.use('/', quotationRoutes);
 
 export default router;
 
