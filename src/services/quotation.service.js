@@ -170,16 +170,16 @@ class QuotationService {
     const items = Array.isArray(data.items) ? data.items : [];
     let subtotal = 0;
     const computedItems = items.map((it, idx) => {
-      const rate = Number(it.rate) || 0;
       const qty = Number(it.qty) || 0;
-      const amount = Math.round(rate * qty * 100) / 100;
+      const rate = Number(it.rate) || 0;
+      const amount = Math.round(qty * rate * 100) / 100;
       subtotal += amount;
       return {
         id: it.id || `item_${idx + 1}`,
         name: (it.name || '').trim(),
         variant_name: (it.variant_name || '').trim(),
-        rate,
         qty,
+        rate,
         amount,
         variants: Array.isArray(it.variants) ? it.variants : [],
       };
@@ -270,16 +270,16 @@ class QuotationService {
     const items = Array.isArray(data.items) ? data.items : existing.items;
     let subtotal = 0;
     const computedItems = items.map((it, idx) => {
-      const rate = Number(it.rate) || 0;
       const qty = Number(it.qty) || 0;
-      const amount = Math.round(rate * qty * 100) / 100;
+      const rate = Number(it.rate) || 0;
+      const amount = Math.round(qty * rate * 100) / 100;
       subtotal += amount;
       return {
         id: it.id || `item_${idx + 1}`,
         name: (it.name || '').trim(),
         variant_name: (it.variant_name || '').trim(),
-        rate,
         qty,
+        rate,
         amount,
         variants: Array.isArray(it.variants) ? it.variants : [],
       };
