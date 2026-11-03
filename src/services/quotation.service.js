@@ -24,13 +24,14 @@ const formatDate = (val) => {
       const day = String(d.getDate()).padStart(2, '0');
       return `${year}-${month}-${day}`;
     }
-  } catch {}
+  } catch { }
   return String(val).slice(0, 10);
 };
 
 const formatQuotationRow = (row) => {
   if (!row) return null;
   const items = parseJson(row.items, []);
+  const bodyCalc = parseJson(row.body_calc, null);
   return {
     id: row.id,
     quotation_no: row.quotation_no,
@@ -39,6 +40,8 @@ const formatQuotationRow = (row) => {
     mobile_number: row.mobile_number || '',
     truck_chassis_no: row.truck_chassis_no || '',
     items: Array.isArray(items) ? items : [],
+    body_calc: bodyCalc,
+    total_weight: Number(row.total_weight) || 0,
     subtotal: Number(row.subtotal) || 0,
     extra_percent: Number(row.extra_percent) || 0,
     extra_amount: Number(row.extra_amount) || 0,
@@ -154,7 +157,7 @@ class QuotationService {
           return `${prefix}${String(nextNum).padStart(3, '0')}`;
         }
       }
-    } catch {}
+    } catch { }
     return `${prefix}001`;
   }
 
@@ -169,12 +172,12 @@ class QuotationService {
 
     // Compute Item Amounts & Totals
     const items = Array.isArray(data.items) ? data.items : [];
-    let subtotal = 0;
+    let itemsSubtotal = 0;
     const computedItems = items.map((it, idx) => {
       const qty = Number(it.qty) || 0;
       const rate = Number(it.rate) || 0;
       const amount = Math.round(qty * rate * 100) / 100;
-      subtotal += amount;
+      itemsSubtotal += amount;
       return {
         id: it.id || `item_${idx + 1}`,
         name: (it.name || '').trim(),
@@ -186,7 +189,16 @@ class QuotationService {
       };
     });
 
-    subtotal = Math.round(subtotal * 100) / 100;
+    itemsSubtotal = Math.round(itemsSubtotal * 100) / 100;
+    const bodyCalc = data.body_calc || null;
+    const bodyCalcJson = bodyCalc ? JSON.stringify(bodyCalc) : null;
+    const bodyAmount = bodyCalc && typeof bodyCalc.total_amount === 'number' ? Number(bodyCalc.total_amount) : 0;
+    const totalWeight = Number(data.total_weight || bodyCalc?.total_weight) || 0;
+
+    const subtotal = data.subtotal !== undefined
+      ? Number(data.subtotal)
+      : Math.round((itemsSubtotal + bodyAmount) * 100) / 100;
+
     const extraPercent = Math.max(0, Number(data.extra_percent) || 0);
     const extraAmount = Math.round((subtotal * extraPercent) / 100 * 100) / 100;
 
@@ -202,9 +214,9 @@ class QuotationService {
       const sql = `
         INSERT INTO quotations (
           quotation_no, quotation_date, customer_name, mobile_number,
-          truck_chassis_no, items, subtotal, extra_percent, extra_amount,
+          truck_chassis_no, items, body_calc, total_weight, subtotal, extra_percent, extra_amount,
           discount_percent, discount_amount, final_price, notes, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
       const params = [
         quotationNo,
@@ -213,6 +225,8 @@ class QuotationService {
         mobileNumber,
         truckChassisNo,
         itemsJson,
+        bodyCalcJson,
+        totalWeight,
         subtotal,
         extraPercent,
         extraAmount,
@@ -236,6 +250,8 @@ class QuotationService {
         mobile_number: mobileNumber,
         truck_chassis_no: truckChassisNo,
         items: computedItems,
+        body_calc: bodyCalc,
+        total_weight: totalWeight,
         subtotal,
         extra_percent: extraPercent,
         extra_amount: extraAmount,
@@ -269,12 +285,12 @@ class QuotationService {
 
     // Recalculate Items & Totals
     const items = Array.isArray(data.items) ? data.items : existing.items;
-    let subtotal = 0;
+    let itemsSubtotal = 0;
     const computedItems = items.map((it, idx) => {
       const qty = Number(it.qty) || 0;
       const rate = Number(it.rate) || 0;
       const amount = Math.round(qty * rate * 100) / 100;
-      subtotal += amount;
+      itemsSubtotal += amount;
       return {
         id: it.id || `item_${idx + 1}`,
         name: (it.name || '').trim(),
@@ -286,7 +302,16 @@ class QuotationService {
       };
     });
 
-    subtotal = Math.round(subtotal * 100) / 100;
+    itemsSubtotal = Math.round(itemsSubtotal * 100) / 100;
+    const bodyCalc = data.body_calc !== undefined ? data.body_calc : existing.body_calc;
+    const bodyCalcJson = bodyCalc ? JSON.stringify(bodyCalc) : null;
+    const bodyAmount = bodyCalc && typeof bodyCalc.total_amount === 'number' ? Number(bodyCalc.total_amount) : 0;
+    const totalWeight = Number(data.total_weight ?? existing.total_weight ?? bodyCalc?.total_weight) || 0;
+
+    const subtotal = data.subtotal !== undefined
+      ? Number(data.subtotal)
+      : Math.round((itemsSubtotal + bodyAmount) * 100) / 100;
+
     const extraPercent = Math.max(0, Number(data.extra_percent ?? existing.extra_percent) || 0);
     const extraAmount = Math.round((subtotal * extraPercent) / 100 * 100) / 100;
 
@@ -307,6 +332,8 @@ class QuotationService {
           mobile_number = ?,
           truck_chassis_no = ?,
           items = ?,
+          body_calc = ?,
+          total_weight = ?,
           subtotal = ?,
           extra_percent = ?,
           extra_amount = ?,
@@ -324,6 +351,8 @@ class QuotationService {
         mobileNumber,
         truckChassisNo,
         itemsJson,
+        bodyCalcJson,
+        totalWeight,
         subtotal,
         extraPercent,
         extraAmount,
@@ -349,6 +378,8 @@ class QuotationService {
           mobile_number: mobileNumber,
           truck_chassis_no: truckChassisNo,
           items: computedItems,
+          body_calc: bodyCalc,
+          total_weight: totalWeight,
           subtotal,
           extra_percent: extraPercent,
           extra_amount: extraAmount,
@@ -407,9 +438,9 @@ class QuotationService {
       : null;
     const variants = Array.isArray(data.variants)
       ? data.variants.map((v) => ({
-          name: (v.name || '').trim(),
-          rate: Number(v.rate) || 0,
-        }))
+        name: (v.name || '').trim(),
+        rate: Number(v.rate) || 0,
+      }))
       : [];
     const variantsJson = JSON.stringify(variants);
 

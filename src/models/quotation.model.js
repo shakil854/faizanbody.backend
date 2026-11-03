@@ -15,6 +15,8 @@ export const QuotationModel = {
     mobile_number: 'VARCHAR(50) NULL',
     truck_chassis_no: 'VARCHAR(100) NULL',
     items: 'JSON NOT NULL',
+    body_calc: 'JSON NULL',
+    total_weight: 'DECIMAL(12, 2) NOT NULL DEFAULT 0.00',
     subtotal: 'DECIMAL(12, 2) NOT NULL DEFAULT 0.00',
     extra_percent: 'DECIMAL(5, 2) NOT NULL DEFAULT 0.00',
     extra_amount: 'DECIMAL(12, 2) NOT NULL DEFAULT 0.00',
