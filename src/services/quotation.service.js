@@ -61,6 +61,7 @@ const formatCatalogItemRow = (row) => {
     rate: Number(row.rate) || 0,
     unit: row.unit || 'Unit',
     variants: Array.isArray(variants) ? variants : [],
+    sort_order: Number(row.sort_order) || 0,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -386,11 +387,13 @@ class QuotationService {
 
   async getCatalogItems() {
     try {
-      const [rows] = await db.query('SELECT * FROM quotation_items_catalog ORDER BY name ASC');
+      const [rows] = await db.query('SELECT * FROM quotation_items_catalog ORDER BY sort_order ASC, id ASC');
       return rows.map(formatCatalogItemRow);
     } catch (error) {
       console.warn('⚠️ [QuotationService Catalog DB Error - Using Memory]:', error.message);
-      return [...memoryCatalogItems].sort((a, b) => a.name.localeCompare(b.name)).map(formatCatalogItemRow);
+      return [...memoryCatalogItems]
+        .sort((a, b) => (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0) || (a.id || 0) - (b.id || 0))
+        .map(formatCatalogItemRow);
     }
   }
 
@@ -399,6 +402,9 @@ class QuotationService {
     if (!name) throw new Error('Item name is required');
     const rate = Number(data.rate) || 0;
     const unit = (data.unit || 'Unit').trim();
+    const sort_order = (data.sort_order !== undefined && data.sort_order !== null && !isNaN(data.sort_order))
+      ? Number(data.sort_order)
+      : null;
     const variants = Array.isArray(data.variants)
       ? data.variants.map((v) => ({
           name: (v.name || '').trim(),
@@ -412,12 +418,24 @@ class QuotationService {
     try {
       if (numId) {
         // Update existing item
-        const sql = `
-          UPDATE quotation_items_catalog SET
-            name = ?, rate = ?, unit = ?, variants = ?
-          WHERE id = ?
-        `;
-        await db.query(sql, [name, rate, unit, variantsJson, numId]);
+        let sql;
+        let params;
+        if (sort_order !== null) {
+          sql = `
+            UPDATE quotation_items_catalog SET
+              name = ?, rate = ?, unit = ?, variants = ?, sort_order = ?
+            WHERE id = ?
+          `;
+          params = [name, rate, unit, variantsJson, sort_order, numId];
+        } else {
+          sql = `
+            UPDATE quotation_items_catalog SET
+              name = ?, rate = ?, unit = ?, variants = ?
+            WHERE id = ?
+          `;
+          params = [name, rate, unit, variantsJson, numId];
+        }
+        await db.query(sql, params);
         const [rows] = await db.query('SELECT * FROM quotation_items_catalog WHERE id = ? LIMIT 1', [numId]);
         return formatCatalogItemRow(rows[0]);
       } else {
@@ -425,20 +443,39 @@ class QuotationService {
         const [existing] = await db.query('SELECT id FROM quotation_items_catalog WHERE LOWER(name) = LOWER(?) LIMIT 1', [name]);
         if (existing && existing.length > 0) {
           const existId = existing[0].id;
-          const sql = `
-            UPDATE quotation_items_catalog SET
-              rate = ?, unit = ?, variants = ?
-            WHERE id = ?
-          `;
-          await db.query(sql, [rate, unit, variantsJson, existId]);
+          let sql;
+          let params;
+          if (sort_order !== null) {
+            sql = `
+              UPDATE quotation_items_catalog SET
+                rate = ?, unit = ?, variants = ?, sort_order = ?
+              WHERE id = ?
+            `;
+            params = [rate, unit, variantsJson, sort_order, existId];
+          } else {
+            sql = `
+              UPDATE quotation_items_catalog SET
+                rate = ?, unit = ?, variants = ?
+              WHERE id = ?
+            `;
+            params = [rate, unit, variantsJson, existId];
+          }
+          await db.query(sql, params);
           const [rows] = await db.query('SELECT * FROM quotation_items_catalog WHERE id = ? LIMIT 1', [existId]);
           return formatCatalogItemRow(rows[0]);
         } else {
+          // If sort_order not provided, put at bottom (max + 1)
+          let finalSortOrder = sort_order;
+          if (finalSortOrder === null || finalSortOrder === undefined) {
+            const [maxRows] = await db.query('SELECT COALESCE(MAX(sort_order), 0) AS max_order FROM quotation_items_catalog');
+            finalSortOrder = (maxRows[0]?.max_order || 0) + 1;
+          }
+
           const sql = `
-            INSERT INTO quotation_items_catalog (name, rate, unit, variants)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO quotation_items_catalog (name, rate, unit, variants, sort_order)
+            VALUES (?, ?, ?, ?, ?)
           `;
-          const [result] = await db.query(sql, [name, rate, unit, variantsJson]);
+          const [result] = await db.query(sql, [name, rate, unit, variantsJson, finalSortOrder]);
           const [rows] = await db.query('SELECT * FROM quotation_items_catalog WHERE id = ? LIMIT 1', [result.insertId]);
           return formatCatalogItemRow(rows[0]);
         }
@@ -454,24 +491,55 @@ class QuotationService {
             rate,
             unit,
             variants,
+            sort_order: sort_order !== null ? sort_order : memoryCatalogItems[idx].sort_order,
             updated_at: new Date().toISOString(),
           };
           return formatCatalogItemRow(memoryCatalogItems[idx]);
         }
       }
+      const existingIdx = memoryCatalogItems.findIndex((it) => it.name.toLowerCase() === name.toLowerCase());
+      if (existingIdx !== -1) {
+        memoryCatalogItems[existingIdx] = {
+          ...memoryCatalogItems[existingIdx],
+          rate,
+          unit,
+          variants,
+          sort_order: sort_order !== null ? sort_order : memoryCatalogItems[existingIdx].sort_order,
+          updated_at: new Date().toISOString(),
+        };
+        return formatCatalogItemRow(memoryCatalogItems[existingIdx]);
+      }
       const newId = memoryCatalogItems.length > 0 ? Math.max(...memoryCatalogItems.map((i) => i.id)) + 1 : 1;
+      const maxOrder = memoryCatalogItems.length > 0 ? Math.max(...memoryCatalogItems.map((i) => i.sort_order || 0)) : 0;
       const newItem = {
         id: newId,
         name,
         rate,
         unit,
         variants,
+        sort_order: sort_order !== null ? sort_order : (maxOrder + 1),
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
       memoryCatalogItems.push(newItem);
       return formatCatalogItemRow(newItem);
     }
+  }
+
+  async saveCatalogItemsBatch(itemsList) {
+    if (!Array.isArray(itemsList)) return [];
+    const results = [];
+    for (let i = 0; i < itemsList.length; i++) {
+      const it = itemsList[i];
+      if (!it || !it.name || !it.name.trim()) continue;
+      const finalSortOrder = typeof it.sort_order === 'number' ? it.sort_order : i + 1;
+      const saved = await this.saveCatalogItem({
+        ...it,
+        sort_order: finalSortOrder,
+      });
+      results.push(saved);
+    }
+    return results;
   }
 
   async deleteCatalogItem(id) {

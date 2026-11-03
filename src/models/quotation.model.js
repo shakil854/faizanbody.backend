@@ -42,11 +42,13 @@ export const QuotationCatalogItemModel = {
     rate: 'DECIMAL(10, 2) NOT NULL DEFAULT 0.00',
     unit: "VARCHAR(50) DEFAULT 'Unit'",
     variants: 'JSON NULL',
+    sort_order: 'INT NOT NULL DEFAULT 0',
     created_at: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
     updated_at: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
   },
   indexes: [
     { name: 'idx_catalog_item_name', column: 'name' },
+    { name: 'idx_catalog_sort_order', column: 'sort_order' },
   ],
   initialSeed: [],
 };

@@ -54,6 +54,15 @@ export const getCatalogItems = asyncHandler(async (req, res) => {
 });
 
 export const saveCatalogItem = asyncHandler(async (req, res) => {
+  if (Array.isArray(req.body)) {
+    const savedList = await quotationService.saveCatalogItemsBatch(req.body);
+    return ApiResponse.success(res, savedList, 'Catalog items batch saved successfully');
+  }
+  if (req.body && Array.isArray(req.body.items)) {
+    const savedList = await quotationService.saveCatalogItemsBatch(req.body.items);
+    return ApiResponse.success(res, savedList, 'Catalog items batch saved successfully');
+  }
+
   const { name } = req.body;
   if (!name || !name.trim()) {
     throw ApiError.badRequest('Item name is required');
