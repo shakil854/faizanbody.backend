@@ -12,7 +12,7 @@ import { verifyToken, authorizeRoles } from '../middlewares/auth.middleware.js';
 const router = Router();
 
 // All user management routes require admin role
-router.use(verifyToken, authorizeRoles('admin'));
+router.use('/users', verifyToken, authorizeRoles('admin'));
 
 router.route('/users')
   .get(getUsers)

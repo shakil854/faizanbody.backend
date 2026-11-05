@@ -11,34 +11,31 @@ import {
   getBodyDefaults,
   saveBodyDefaults,
 } from '../controllers/quotation.controller.js';
-import { verifyToken, authorizeRoles } from '../middlewares/auth.middleware.js';
+import { verifyToken, requirePermission, authorizeRoles } from '../middlewares/auth.middleware.js';
 
 const router = Router();
 
-// Quotations module accessible to Admin and Worker / User
-router.use(verifyToken, authorizeRoles('admin', 'user'));
-
 // Body Defaults (Master default rates and weights for 6 body parts: Taliyu, Side, Dhoka, Thambhla, Purchuran, Machado)
 router.route('/quotations/body-defaults')
-  .get(getBodyDefaults)
-  .post(authorizeRoles('admin'), saveBodyDefaults);
+  .get(verifyToken, requirePermission('quotations:view'), getBodyDefaults)
+  .post(verifyToken, authorizeRoles('admin'), saveBodyDefaults);
 
 // Catalog Items (Saved items & rates)
 router.route('/quotations/catalog/items')
-  .get(getCatalogItems)
-  .post(authorizeRoles('admin'), saveCatalogItem);
+  .get(verifyToken, requirePermission('quotations:view'), getCatalogItems)
+  .post(verifyToken, authorizeRoles('admin'), saveCatalogItem);
 
 router.route('/quotations/catalog/items/:id')
-  .delete(authorizeRoles('admin'), deleteCatalogItem);
+  .delete(verifyToken, authorizeRoles('admin'), deleteCatalogItem);
 
-// Quotations CRUD
+// Quotations CRUD (Protected by granular permissions, Admin has automatic full access)
 router.route('/quotations')
-  .get(getQuotations)
-  .post(createQuotation);
+  .get(verifyToken, requirePermission('quotations:view'), getQuotations)
+  .post(verifyToken, requirePermission('quotations:create'), createQuotation);
 
 router.route('/quotations/:id')
-  .get(getQuotationById)
-  .put(updateQuotation)
-  .delete(authorizeRoles('admin'), deleteQuotation);
+  .get(verifyToken, requirePermission('quotations:view'), getQuotationById)
+  .put(verifyToken, requirePermission('quotations:edit'), updateQuotation)
+  .delete(verifyToken, requirePermission('quotations:delete'), deleteQuotation);
 
 export default router;
