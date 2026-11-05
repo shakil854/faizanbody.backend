@@ -15,21 +15,21 @@ import { verifyToken, authorizeRoles } from '../middlewares/auth.middleware.js';
 
 const router = Router();
 
-// Quotations module is strictly restricted to Admin role only
-router.use(verifyToken, authorizeRoles('admin'));
+// Quotations module accessible to Admin and Worker / User
+router.use(verifyToken, authorizeRoles('admin', 'user'));
 
 // Body Defaults (Master default rates and weights for 6 body parts: Taliyu, Side, Dhoka, Thambhla, Purchuran, Machado)
 router.route('/quotations/body-defaults')
   .get(getBodyDefaults)
-  .post(saveBodyDefaults);
+  .post(authorizeRoles('admin'), saveBodyDefaults);
 
 // Catalog Items (Saved items & rates)
 router.route('/quotations/catalog/items')
   .get(getCatalogItems)
-  .post(saveCatalogItem);
+  .post(authorizeRoles('admin'), saveCatalogItem);
 
 router.route('/quotations/catalog/items/:id')
-  .delete(deleteCatalogItem);
+  .delete(authorizeRoles('admin'), deleteCatalogItem);
 
 // Quotations CRUD
 router.route('/quotations')
@@ -39,6 +39,6 @@ router.route('/quotations')
 router.route('/quotations/:id')
   .get(getQuotationById)
   .put(updateQuotation)
-  .delete(deleteQuotation);
+  .delete(authorizeRoles('admin'), deleteQuotation);
 
 export default router;
