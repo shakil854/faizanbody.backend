@@ -176,14 +176,18 @@ class QuotationService {
     const items = Array.isArray(data.items) ? data.items : [];
     let itemsSubtotal = 0;
     const computedItems = items.map((it, idx) => {
-      const qty = Number(it.qty) || 0;
+      const isSelected = it.selected !== undefined
+        ? Boolean(it.selected)
+        : (Number(it.qty) > 0 || Number(it.amount) > 0);
       const rate = Number(it.rate) || 0;
-      const amount = Math.round(qty * rate * 100) / 100;
+      const qty = isSelected ? 1 : 0;
+      const amount = isSelected ? rate : 0;
       itemsSubtotal += amount;
       return {
         id: it.id || `item_${idx + 1}`,
         name: (it.name || '').trim(),
         variant_name: (it.variant_name || '').trim(),
+        selected: isSelected,
         qty,
         rate,
         amount,
@@ -302,14 +306,18 @@ class QuotationService {
     const items = Array.isArray(data.items) ? data.items : existing.items;
     let itemsSubtotal = 0;
     const computedItems = items.map((it, idx) => {
-      const qty = Number(it.qty) || 0;
+      const isSelected = it.selected !== undefined
+        ? Boolean(it.selected)
+        : (Number(it.qty) > 0 || Number(it.amount) > 0);
       const rate = Number(it.rate) || 0;
-      const amount = Math.round(qty * rate * 100) / 100;
+      const qty = isSelected ? 1 : 0;
+      const amount = isSelected ? rate : 0;
       itemsSubtotal += amount;
       return {
         id: it.id || `item_${idx + 1}`,
         name: (it.name || '').trim(),
         variant_name: (it.variant_name || '').trim(),
+        selected: isSelected,
         qty,
         rate,
         amount,
