@@ -77,3 +77,13 @@ export const deleteCatalogItem = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, { id }, 'Catalog item deleted successfully');
 });
 
+export const getBodyDefaults = asyncHandler(async (req, res) => {
+  const defaults = await quotationService.getBodyDefaults();
+  return ApiResponse.success(res, defaults, 'Body defaults retrieved successfully');
+});
+
+export const saveBodyDefaults = asyncHandler(async (req, res) => {
+  const saved = await quotationService.saveBodyDefaults(req.body);
+  return ApiResponse.success(res, saved, 'Body defaults saved successfully');
+});
+

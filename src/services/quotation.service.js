@@ -1,8 +1,10 @@
 import db from '../config/db.js';
+import { settingService } from './setting.service.js';
 
 // Safe in-memory fallback stores (Empty by default - Zero Dummy Data Rule)
 const memoryQuotations = [];
 const memoryCatalogItems = [];
+let memoryBodyDefaults = null;
 
 const parseJson = (val, fallback = []) => {
   if (!val) return fallback;
@@ -190,10 +192,17 @@ class QuotationService {
     });
 
     itemsSubtotal = Math.round(itemsSubtotal * 100) / 100;
-    const bodyCalc = data.body_calc || null;
+    let bodyCalc = data.body_calc || null;
+    if (typeof bodyCalc === 'string') {
+      try {
+        bodyCalc = JSON.parse(bodyCalc);
+      } catch {
+        bodyCalc = null;
+      }
+    }
     const bodyCalcJson = bodyCalc ? JSON.stringify(bodyCalc) : null;
     const bodyAmount = bodyCalc && typeof bodyCalc.total_amount === 'number' ? Number(bodyCalc.total_amount) : 0;
-    const totalWeight = Number(data.total_weight || bodyCalc?.total_weight) || 0;
+    const totalWeight = Number(data.total_weight ?? bodyCalc?.total_weight) || 0;
 
     const subtotal = data.subtotal !== undefined
       ? Number(data.subtotal)
@@ -238,6 +247,9 @@ class QuotationService {
       ];
 
       const [result] = await db.query(sql, params);
+      if (bodyCalc && typeof bodyCalc === 'object') {
+        this.persistBodyDefaultsFromCalc(bodyCalc).catch(() => {});
+      }
       return this.getQuotationById(result.insertId);
     } catch (error) {
       console.warn('⚠️ [QuotationService DB Error - Saving to Memory]:', error.message);
@@ -263,6 +275,9 @@ class QuotationService {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
+      if (bodyCalc && typeof bodyCalc === 'object') {
+        this.persistBodyDefaultsFromCalc(bodyCalc).catch(() => {});
+      }
       memoryQuotations.unshift(newQuotation);
       return formatQuotationRow(newQuotation);
     }
@@ -303,7 +318,14 @@ class QuotationService {
     });
 
     itemsSubtotal = Math.round(itemsSubtotal * 100) / 100;
-    const bodyCalc = data.body_calc !== undefined ? data.body_calc : existing.body_calc;
+    let bodyCalc = data.body_calc !== undefined ? data.body_calc : existing.body_calc;
+    if (typeof bodyCalc === 'string') {
+      try {
+        bodyCalc = JSON.parse(bodyCalc);
+      } catch {
+        bodyCalc = existing.body_calc;
+      }
+    }
     const bodyCalcJson = bodyCalc ? JSON.stringify(bodyCalc) : null;
     const bodyAmount = bodyCalc && typeof bodyCalc.total_amount === 'number' ? Number(bodyCalc.total_amount) : 0;
     const totalWeight = Number(data.total_weight ?? existing.total_weight ?? bodyCalc?.total_weight) || 0;
@@ -365,6 +387,9 @@ class QuotationService {
       ];
 
       await db.query(sql, params);
+      if (bodyCalc && typeof bodyCalc === 'object') {
+        this.persistBodyDefaultsFromCalc(bodyCalc).catch(() => {});
+      }
       return this.getQuotationById(numId);
     } catch (error) {
       console.warn('⚠️ [QuotationService DB Error - Updating Memory]:', error.message);
@@ -390,6 +415,9 @@ class QuotationService {
           status,
           updated_at: new Date().toISOString(),
         };
+        if (bodyCalc && typeof bodyCalc === 'object') {
+          this.persistBodyDefaultsFromCalc(bodyCalc).catch(() => {});
+        }
         return formatQuotationRow(memoryQuotations[idx]);
       }
       throw error;
@@ -409,6 +437,132 @@ class QuotationService {
         return true;
       }
       throw error;
+    }
+  }
+
+  // =========================================================================
+  // 1.1 Body Calculation Defaults (બોડી માપ, વજન અને ભાવ કાયમી ડેટાબેઝ સેવિંગ)
+  // Stores and retrieves default weight and bhav for all 6 body items:
+  // 1. Taliyu (Floor)
+  // 2. Side
+  // 3. Dhoka
+  // 4. Thambhla
+  // 5. Purchuran
+  // 6. Machado
+  // =========================================================================
+
+  async getBodyDefaults() {
+    try {
+      const saved = await settingService.getSetting('quotation_body_defaults', null);
+      if (saved && typeof saved === 'object') {
+        return saved;
+      }
+    } catch (err) {
+      console.warn('⚠️ [QuotationService] Failed to get body defaults from DB:', err.message);
+    }
+    return memoryBodyDefaults;
+  }
+
+  async saveBodyDefaults(data) {
+    if (!data || typeof data !== 'object') {
+      throw new Error('Invalid body defaults data');
+    }
+
+    const cleaned = {
+      taliyu: {
+        selected_option_index: Number(data.taliyu?.selected_option_index) || 0,
+        options: Array.isArray(data.taliyu?.options)
+          ? data.taliyu.options.map((opt, i) => ({
+              id: opt.id || String(i + 1),
+              name: (opt.name || '').trim(),
+              weight_per_sqft: opt.weight_per_sqft !== undefined && opt.weight_per_sqft !== null ? String(opt.weight_per_sqft) : '',
+              rate: opt.rate !== undefined && opt.rate !== null ? String(opt.rate) : '',
+            }))
+          : [],
+      },
+      side: {
+        selected_option_index: Number(data.side?.selected_option_index) || 0,
+        options: Array.isArray(data.side?.options)
+          ? data.side.options.map((opt, i) => ({
+              id: opt.id || String(i + 1),
+              name: (opt.name || '').trim(),
+              weight_per_sqft: opt.weight_per_sqft !== undefined && opt.weight_per_sqft !== null ? String(opt.weight_per_sqft) : '',
+              rate: opt.rate !== undefined && opt.rate !== null ? String(opt.rate) : '',
+            }))
+          : [],
+      },
+      dhoka: {
+        weight_per_piece: data.dhoka?.weight_per_piece !== undefined && data.dhoka?.weight_per_piece !== null ? String(data.dhoka.weight_per_piece) : '',
+        rate: data.dhoka?.rate !== undefined && data.dhoka?.rate !== null ? String(data.dhoka.rate) : '',
+      },
+      thambhla: {
+        weight_per_foot: data.thambhla?.weight_per_foot !== undefined && data.thambhla?.weight_per_foot !== null ? String(data.thambhla.weight_per_foot) : '',
+        rate: data.thambhla?.rate !== undefined && data.thambhla?.rate !== null ? String(data.thambhla.rate) : '',
+      },
+      purchuran: {
+        rate: data.purchuran?.rate !== undefined && data.purchuran?.rate !== null ? String(data.purchuran.rate) : '',
+      },
+      machado: {
+        enabled: Boolean(data.machado?.enabled ?? false),
+        amount: data.machado?.amount !== undefined && data.machado?.amount !== null ? String(data.machado.amount) : '',
+      },
+    };
+
+    try {
+      await settingService.setSetting(
+        'quotation_body_defaults',
+        cleaned,
+        'Persistent Default Body Calculation Rates & Weights for Quotations'
+      );
+    } catch (err) {
+      console.warn('⚠️ [QuotationService] Failed to persist body defaults to DB, using memory:', err.message);
+    }
+    memoryBodyDefaults = cleaned;
+    return cleaned;
+  }
+
+  async persistBodyDefaultsFromCalc(bodyCalc) {
+    if (!bodyCalc || typeof bodyCalc !== 'object') return;
+    try {
+      const existing = (await this.getBodyDefaults()) || {};
+
+      const tOpts = Array.isArray(bodyCalc.taliyu?.options) && bodyCalc.taliyu.options.length > 0
+        ? bodyCalc.taliyu.options
+        : existing.taliyu?.options || [];
+
+      const sOpts = Array.isArray(bodyCalc.side?.options) && bodyCalc.side.options.length > 0
+        ? bodyCalc.side.options
+        : existing.side?.options || [];
+
+      const bodyDefaults = {
+        taliyu: {
+          selected_option_index: bodyCalc.taliyu?.selected_option_index ?? existing.taliyu?.selected_option_index ?? 0,
+          options: tOpts,
+        },
+        side: {
+          selected_option_index: bodyCalc.side?.selected_option_index ?? existing.side?.selected_option_index ?? 0,
+          options: sOpts,
+        },
+        dhoka: {
+          weight_per_piece: bodyCalc.dhoka?.weight_per_piece ?? existing.dhoka?.weight_per_piece ?? '',
+          rate: bodyCalc.dhoka?.rate ?? existing.dhoka?.rate ?? '',
+        },
+        thambhla: {
+          weight_per_foot: bodyCalc.thambhla?.weight_per_foot ?? existing.thambhla?.weight_per_foot ?? '',
+          rate: bodyCalc.thambhla?.rate ?? existing.thambhla?.rate ?? '',
+        },
+        purchuran: {
+          rate: bodyCalc.purchuran?.rate ?? existing.purchuran?.rate ?? '',
+        },
+        machado: {
+          enabled: Boolean(bodyCalc.machado?.enabled ?? existing.machado?.enabled ?? false),
+          amount: bodyCalc.machado?.amount ?? existing.machado?.amount ?? '',
+        },
+      };
+
+      await this.saveBodyDefaults(bodyDefaults);
+    } catch (err) {
+      console.warn('⚠️ [QuotationService] Failed to auto-persist body defaults from calculation:', err.message);
     }
   }
 

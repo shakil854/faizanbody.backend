@@ -8,6 +8,8 @@ import {
   getCatalogItems,
   saveCatalogItem,
   deleteCatalogItem,
+  getBodyDefaults,
+  saveBodyDefaults,
 } from '../controllers/quotation.controller.js';
 import { verifyToken, authorizeRoles } from '../middlewares/auth.middleware.js';
 
@@ -15,6 +17,11 @@ const router = Router();
 
 // Quotations module is strictly restricted to Admin role only
 router.use(verifyToken, authorizeRoles('admin'));
+
+// Body Defaults (Master default rates and weights for 6 body parts: Taliyu, Side, Dhoka, Thambhla, Purchuran, Machado)
+router.route('/quotations/body-defaults')
+  .get(getBodyDefaults)
+  .post(saveBodyDefaults);
 
 // Catalog Items (Saved items & rates)
 router.route('/quotations/catalog/items')
