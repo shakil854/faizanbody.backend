@@ -544,19 +544,31 @@ class QuotationService {
           options: sOpts,
         },
         dhoka: {
-          weight_per_piece: bodyCalc.dhoka?.weight_per_piece ?? existing.dhoka?.weight_per_piece ?? '',
-          rate: bodyCalc.dhoka?.rate ?? existing.dhoka?.rate ?? '',
+          weight_per_piece: (bodyCalc.dhoka?.weight_per_piece !== undefined && bodyCalc.dhoka?.weight_per_piece !== '')
+            ? String(bodyCalc.dhoka.weight_per_piece)
+            : (existing.dhoka?.weight_per_piece ?? ''),
+          rate: (bodyCalc.dhoka?.rate !== undefined && bodyCalc.dhoka?.rate !== '')
+            ? String(bodyCalc.dhoka.rate)
+            : (existing.dhoka?.rate ?? ''),
         },
         thambhla: {
-          weight_per_foot: bodyCalc.thambhla?.weight_per_foot ?? existing.thambhla?.weight_per_foot ?? '',
-          rate: bodyCalc.thambhla?.rate ?? existing.thambhla?.rate ?? '',
+          weight_per_foot: (bodyCalc.thambhla?.weight_per_foot !== undefined && bodyCalc.thambhla?.weight_per_foot !== '')
+            ? String(bodyCalc.thambhla.weight_per_foot)
+            : (existing.thambhla?.weight_per_foot ?? ''),
+          rate: (bodyCalc.thambhla?.rate !== undefined && bodyCalc.thambhla?.rate !== '')
+            ? String(bodyCalc.thambhla.rate)
+            : (existing.thambhla?.rate ?? ''),
         },
         purchuran: {
-          rate: bodyCalc.purchuran?.rate ?? existing.purchuran?.rate ?? '',
+          rate: (bodyCalc.purchuran?.rate !== undefined && bodyCalc.purchuran?.rate !== '')
+            ? String(bodyCalc.purchuran.rate)
+            : (existing.purchuran?.rate ?? ''),
         },
         machado: {
           enabled: Boolean(bodyCalc.machado?.enabled ?? existing.machado?.enabled ?? false),
-          amount: bodyCalc.machado?.amount ?? existing.machado?.amount ?? '',
+          amount: (bodyCalc.machado?.amount !== undefined && String(bodyCalc.machado.amount).trim() !== '')
+            ? String(bodyCalc.machado.amount)
+            : (existing.machado?.amount || '12000'),
         },
       };
 
