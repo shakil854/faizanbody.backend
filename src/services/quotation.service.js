@@ -509,16 +509,29 @@ class QuotationService {
       },
       purchuran: {
         enabled: Boolean(data.purchuran?.enabled ?? false),
+        selected_option_index: typeof data.purchuran?.selected_option_index === 'number' ? data.purchuran.selected_option_index : 0,
+        options: Array.isArray(data.purchuran?.options) ? data.purchuran.options : [],
+        weight: data.purchuran?.weight !== undefined && data.purchuran?.weight !== null ? String(data.purchuran.weight) : '',
+        rate: data.purchuran?.rate !== undefined && data.purchuran?.rate !== null ? String(data.purchuran.rate) : '',
         amount: data.purchuran?.amount !== undefined && data.purchuran?.amount !== null
-          ? String(data.purchuran.amount)
-          : (data.purchuran?.rate !== undefined && data.purchuran?.rate !== null ? String(data.purchuran.rate) : ''),
-        rate: data.purchuran?.amount !== undefined && data.purchuran?.amount !== null
           ? String(data.purchuran.amount)
           : (data.purchuran?.rate !== undefined && data.purchuran?.rate !== null ? String(data.purchuran.rate) : ''),
       },
       machado: {
         enabled: Boolean(data.machado?.enabled ?? false),
         amount: data.machado?.amount !== undefined && data.machado?.amount !== null ? String(data.machado.amount) : '',
+      },
+      monofo: {
+        enabled: Boolean((data.monofo?.enabled ?? data.mpnfo?.enabled) ?? false),
+        amount: data.monofo?.amount !== undefined && data.monofo?.amount !== null
+          ? String(data.monofo.amount)
+          : (data.mpnfo?.amount !== undefined && data.mpnfo?.amount !== null ? String(data.mpnfo.amount) : ''),
+      },
+      mpnfo: {
+        enabled: Boolean((data.mpnfo?.enabled ?? data.monofo?.enabled) ?? false),
+        amount: data.mpnfo?.amount !== undefined && data.mpnfo?.amount !== null
+          ? String(data.mpnfo.amount)
+          : (data.monofo?.amount !== undefined && data.monofo?.amount !== null ? String(data.monofo.amount) : ''),
       },
     };
 
@@ -548,6 +561,10 @@ class QuotationService {
         ? bodyCalc.side.options
         : existing.side?.options || [];
 
+      const pOpts = Array.isArray(bodyCalc.purchuran?.options) && bodyCalc.purchuran.options.length > 0
+        ? bodyCalc.purchuran.options
+        : existing.purchuran?.options || [];
+
       const bodyDefaults = {
         taliyu: {
           selected_option_index: bodyCalc.taliyu?.selected_option_index ?? existing.taliyu?.selected_option_index ?? 0,
@@ -575,22 +592,39 @@ class QuotationService {
         },
         purchuran: {
           enabled: Boolean(bodyCalc.purchuran?.enabled ?? existing.purchuran?.enabled ?? false),
+          selected_option_index: bodyCalc.purchuran?.selected_option_index ?? existing.purchuran?.selected_option_index ?? 0,
+          options: pOpts,
+          weight: (bodyCalc.purchuran?.weight !== undefined && String(bodyCalc.purchuran.weight).trim() !== '')
+            ? String(bodyCalc.purchuran.weight)
+            : (existing.purchuran?.weight ?? ''),
+          rate: (bodyCalc.purchuran?.rate !== undefined && String(bodyCalc.purchuran.rate).trim() !== '')
+            ? String(bodyCalc.purchuran.rate)
+            : (existing.purchuran?.rate ?? ''),
           amount: (bodyCalc.purchuran?.amount !== undefined && String(bodyCalc.purchuran.amount).trim() !== '')
             ? String(bodyCalc.purchuran.amount)
-            : ((bodyCalc.purchuran?.rate !== undefined && String(bodyCalc.purchuran.rate).trim() !== '')
-              ? String(bodyCalc.purchuran.rate)
-              : (existing.purchuran?.amount ?? existing.purchuran?.rate ?? '')),
-          rate: (bodyCalc.purchuran?.amount !== undefined && String(bodyCalc.purchuran.amount).trim() !== '')
-            ? String(bodyCalc.purchuran.amount)
-            : ((bodyCalc.purchuran?.rate !== undefined && String(bodyCalc.purchuran.rate).trim() !== '')
-              ? String(bodyCalc.purchuran.rate)
-              : (existing.purchuran?.amount ?? existing.purchuran?.rate ?? '')),
+            : (existing.purchuran?.amount ?? existing.purchuran?.rate ?? ''),
         },
         machado: {
           enabled: Boolean(bodyCalc.machado?.enabled ?? existing.machado?.enabled ?? false),
           amount: (bodyCalc.machado?.amount !== undefined && String(bodyCalc.machado.amount).trim() !== '')
             ? String(bodyCalc.machado.amount)
             : (existing.machado?.amount || '12000'),
+        },
+        monofo: {
+          enabled: Boolean(bodyCalc.monofo?.enabled ?? bodyCalc.mpnfo?.enabled ?? existing.monofo?.enabled ?? existing.mpnfo?.enabled ?? false),
+          amount: (bodyCalc.monofo?.amount !== undefined && String(bodyCalc.monofo.amount).trim() !== '')
+            ? String(bodyCalc.monofo.amount)
+            : ((bodyCalc.mpnfo?.amount !== undefined && String(bodyCalc.mpnfo.amount).trim() !== '')
+              ? String(bodyCalc.mpnfo.amount)
+              : (existing.monofo?.amount || existing.mpnfo?.amount || '10000')),
+        },
+        mpnfo: {
+          enabled: Boolean(bodyCalc.mpnfo?.enabled ?? bodyCalc.monofo?.enabled ?? existing.mpnfo?.enabled ?? existing.monofo?.enabled ?? false),
+          amount: (bodyCalc.mpnfo?.amount !== undefined && String(bodyCalc.mpnfo.amount).trim() !== '')
+            ? String(bodyCalc.mpnfo.amount)
+            : ((bodyCalc.monofo?.amount !== undefined && String(bodyCalc.monofo.amount).trim() !== '')
+              ? String(bodyCalc.monofo.amount)
+              : (existing.mpnfo?.amount || existing.monofo?.amount || '10000')),
         },
       };
 
