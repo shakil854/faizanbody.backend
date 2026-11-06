@@ -508,7 +508,13 @@ class QuotationService {
         rate: data.thambhla?.rate !== undefined && data.thambhla?.rate !== null ? String(data.thambhla.rate) : '',
       },
       purchuran: {
-        rate: data.purchuran?.rate !== undefined && data.purchuran?.rate !== null ? String(data.purchuran.rate) : '',
+        enabled: Boolean(data.purchuran?.enabled ?? false),
+        amount: data.purchuran?.amount !== undefined && data.purchuran?.amount !== null
+          ? String(data.purchuran.amount)
+          : (data.purchuran?.rate !== undefined && data.purchuran?.rate !== null ? String(data.purchuran.rate) : ''),
+        rate: data.purchuran?.amount !== undefined && data.purchuran?.amount !== null
+          ? String(data.purchuran.amount)
+          : (data.purchuran?.rate !== undefined && data.purchuran?.rate !== null ? String(data.purchuran.rate) : ''),
       },
       machado: {
         enabled: Boolean(data.machado?.enabled ?? false),
@@ -568,9 +574,17 @@ class QuotationService {
             : (existing.thambhla?.rate ?? ''),
         },
         purchuran: {
-          rate: (bodyCalc.purchuran?.rate !== undefined && bodyCalc.purchuran?.rate !== '')
-            ? String(bodyCalc.purchuran.rate)
-            : (existing.purchuran?.rate ?? ''),
+          enabled: Boolean(bodyCalc.purchuran?.enabled ?? existing.purchuran?.enabled ?? false),
+          amount: (bodyCalc.purchuran?.amount !== undefined && String(bodyCalc.purchuran.amount).trim() !== '')
+            ? String(bodyCalc.purchuran.amount)
+            : ((bodyCalc.purchuran?.rate !== undefined && String(bodyCalc.purchuran.rate).trim() !== '')
+              ? String(bodyCalc.purchuran.rate)
+              : (existing.purchuran?.amount ?? existing.purchuran?.rate ?? '')),
+          rate: (bodyCalc.purchuran?.amount !== undefined && String(bodyCalc.purchuran.amount).trim() !== '')
+            ? String(bodyCalc.purchuran.amount)
+            : ((bodyCalc.purchuran?.rate !== undefined && String(bodyCalc.purchuran.rate).trim() !== '')
+              ? String(bodyCalc.purchuran.rate)
+              : (existing.purchuran?.amount ?? existing.purchuran?.rate ?? '')),
         },
         machado: {
           enabled: Boolean(bodyCalc.machado?.enabled ?? existing.machado?.enabled ?? false),
