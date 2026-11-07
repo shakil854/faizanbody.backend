@@ -510,7 +510,14 @@ class QuotationService {
       purchuran: {
         enabled: Boolean(data.purchuran?.enabled ?? false),
         selected_option_index: typeof data.purchuran?.selected_option_index === 'number' ? data.purchuran.selected_option_index : 0,
-        options: Array.isArray(data.purchuran?.options) ? data.purchuran.options : [],
+        options: Array.isArray(data.purchuran?.options)
+          ? data.purchuran.options.map((opt, i) => ({
+              id: opt.id || String(i + 1),
+              name: opt.name !== undefined ? String(opt.name) : '',
+              weight: opt.weight !== undefined && opt.weight !== null ? String(opt.weight) : (opt.qty !== undefined && opt.qty !== null ? String(opt.qty) : ''),
+              rate: opt.rate !== undefined && opt.rate !== null ? String(opt.rate) : '',
+            }))
+          : [],
         weight: data.purchuran?.weight !== undefined && data.purchuran?.weight !== null ? String(data.purchuran.weight) : '',
         rate: data.purchuran?.rate !== undefined && data.purchuran?.rate !== null ? String(data.purchuran.rate) : '',
         amount: data.purchuran?.amount !== undefined && data.purchuran?.amount !== null
@@ -520,7 +527,14 @@ class QuotationService {
       machado: {
         enabled: Boolean(data.machado?.enabled ?? false),
         selected_option_index: typeof data.machado?.selected_option_index === 'number' ? data.machado.selected_option_index : 0,
-        options: Array.isArray(data.machado?.options) ? data.machado.options : [],
+        options: Array.isArray(data.machado?.options)
+          ? data.machado.options.map((opt, i) => ({
+              id: opt.id || String(i + 1),
+              name: opt.name !== undefined ? String(opt.name) : '',
+              weight: opt.weight !== undefined && opt.weight !== null ? String(opt.weight) : (opt.qty !== undefined && opt.qty !== null ? String(opt.qty) : ''),
+              rate: opt.rate !== undefined && opt.rate !== null ? String(opt.rate) : '',
+            }))
+          : [],
         weight: data.machado?.weight !== undefined && data.machado?.weight !== null ? String(data.machado.weight) : '',
         rate: data.machado?.rate !== undefined && data.machado?.rate !== null ? String(data.machado.rate) : '',
         amount: data.machado?.amount !== undefined && data.machado?.amount !== null
@@ -568,11 +582,21 @@ class QuotationService {
         : existing.side?.options || [];
 
       const pOpts = Array.isArray(bodyCalc.purchuran?.options) && bodyCalc.purchuran.options.length > 0
-        ? bodyCalc.purchuran.options
+        ? bodyCalc.purchuran.options.map((opt, i) => ({
+            id: opt.id || String(i + 1),
+            name: opt.name !== undefined ? String(opt.name) : '',
+            weight: opt.weight !== undefined && opt.weight !== null ? String(opt.weight) : (opt.qty !== undefined && opt.qty !== null ? String(opt.qty) : ''),
+            rate: opt.rate !== undefined && opt.rate !== null ? String(opt.rate) : '',
+          }))
         : existing.purchuran?.options || [];
 
       const mOpts = Array.isArray(bodyCalc.machado?.options) && bodyCalc.machado.options.length > 0
-        ? bodyCalc.machado.options
+        ? bodyCalc.machado.options.map((opt, i) => ({
+            id: opt.id || String(i + 1),
+            name: opt.name !== undefined ? String(opt.name) : '',
+            weight: opt.weight !== undefined && opt.weight !== null ? String(opt.weight) : (opt.qty !== undefined && opt.qty !== null ? String(opt.qty) : ''),
+            rate: opt.rate !== undefined && opt.rate !== null ? String(opt.rate) : '',
+          }))
         : existing.machado?.options || [];
 
       const bodyDefaults = {
