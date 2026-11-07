@@ -519,7 +519,13 @@ class QuotationService {
       },
       machado: {
         enabled: Boolean(data.machado?.enabled ?? false),
-        amount: data.machado?.amount !== undefined && data.machado?.amount !== null ? String(data.machado.amount) : '',
+        selected_option_index: typeof data.machado?.selected_option_index === 'number' ? data.machado.selected_option_index : 0,
+        options: Array.isArray(data.machado?.options) ? data.machado.options : [],
+        weight: data.machado?.weight !== undefined && data.machado?.weight !== null ? String(data.machado.weight) : '',
+        rate: data.machado?.rate !== undefined && data.machado?.rate !== null ? String(data.machado.rate) : '',
+        amount: data.machado?.amount !== undefined && data.machado?.amount !== null
+          ? String(data.machado.amount)
+          : (data.machado?.rate !== undefined && data.machado?.rate !== null ? String(data.machado.rate) : ''),
       },
       monofo: {
         enabled: Boolean((data.monofo?.enabled ?? data.mpnfo?.enabled) ?? false),
@@ -565,6 +571,10 @@ class QuotationService {
         ? bodyCalc.purchuran.options
         : existing.purchuran?.options || [];
 
+      const mOpts = Array.isArray(bodyCalc.machado?.options) && bodyCalc.machado.options.length > 0
+        ? bodyCalc.machado.options
+        : existing.machado?.options || [];
+
       const bodyDefaults = {
         taliyu: {
           selected_option_index: bodyCalc.taliyu?.selected_option_index ?? existing.taliyu?.selected_option_index ?? 0,
@@ -606,9 +616,17 @@ class QuotationService {
         },
         machado: {
           enabled: Boolean(bodyCalc.machado?.enabled ?? existing.machado?.enabled ?? false),
+          selected_option_index: bodyCalc.machado?.selected_option_index ?? existing.machado?.selected_option_index ?? 0,
+          options: mOpts,
+          weight: (bodyCalc.machado?.weight !== undefined && String(bodyCalc.machado.weight).trim() !== '')
+            ? String(bodyCalc.machado.weight)
+            : (existing.machado?.weight ?? ''),
+          rate: (bodyCalc.machado?.rate !== undefined && String(bodyCalc.machado.rate).trim() !== '')
+            ? String(bodyCalc.machado.rate)
+            : (existing.machado?.rate ?? ''),
           amount: (bodyCalc.machado?.amount !== undefined && String(bodyCalc.machado.amount).trim() !== '')
             ? String(bodyCalc.machado.amount)
-            : (existing.machado?.amount || '12000'),
+            : (existing.machado?.amount ?? existing.machado?.rate ?? ''),
         },
         monofo: {
           enabled: Boolean(bodyCalc.monofo?.enabled ?? bodyCalc.mpnfo?.enabled ?? existing.monofo?.enabled ?? existing.mpnfo?.enabled ?? false),
