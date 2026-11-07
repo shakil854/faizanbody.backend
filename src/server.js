@@ -2,6 +2,7 @@ import app from './app.js';
 import { config } from './config/env.js';
 import { connectDB } from './config/db.js';
 import { syncDatabase } from './config/syncDatabase.js';
+import { initScheduledBackups } from './services/backup.service.js';
 
 const startServer = async () => {
   try {
@@ -10,6 +11,9 @@ const startServer = async () => {
 
     // 2. Auto Sync & Safe Alter Tables (No data loss on adding new fields)
     await syncDatabase({ alter: true });
+
+    // 3. Initialize 30-Day Rolling Automated Backups
+    initScheduledBackups();
 
     // 3. Start Express Server
     const server = app.listen(config.port, () => {
