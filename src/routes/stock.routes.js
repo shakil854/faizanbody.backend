@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   getCategories,
   createCategory,
+  updateCategory,
   deleteCategory,
   getItems,
   getItemById,
@@ -28,7 +29,9 @@ router.route('/stock/categories')
   .get(verifyToken, requirePermission('stock:view'), getCategories)
   .post(verifyToken, requirePermission('stock:category'), createCategory);
 
-router.delete('/stock/categories/:id', verifyToken, requirePermission('stock:category'), deleteCategory);
+router.route('/stock/categories/:id')
+  .put(verifyToken, requirePermission('stock:category'), updateCategory)
+  .delete(verifyToken, requirePermission('stock:category'), deleteCategory);
 
 // Stock Items CRUD
 router.route('/stock/items')

@@ -128,6 +128,72 @@ class StockService {
     }
   }
 
+  async updateCategory(id, newName) {
+    const numId = Number(id);
+    const trimmed = (newName || '').trim();
+    if (!trimmed) {
+      throw new Error('Category name is required (કેટેગરીનું નામ જરૂરી છે)');
+    }
+
+    try {
+      // 1. Check if category exists
+      const [catRows] = await db.query('SELECT * FROM stock_categories WHERE id = ? LIMIT 1', [numId]);
+      if (!catRows || catRows.length === 0) {
+        throw new Error('Category not found');
+      }
+      const oldName = catRows[0].name;
+
+      // 2. Check if another category already has this name
+      const [existing] = await db.query(
+        'SELECT * FROM stock_categories WHERE LOWER(name) = LOWER(?) AND id != ? LIMIT 1',
+        [trimmed, numId]
+      );
+      if (existing && existing.length > 0) {
+        throw new Error(`Category "${trimmed}" already exists (આ નામની કેટેગરી પહેલેથી હાજર છે).`);
+      }
+
+      // 3. Update stock_categories table
+      await db.query('UPDATE stock_categories SET name = ? WHERE id = ?', [trimmed, numId]);
+
+      // 4. Update linked items in stock_items
+      await db.query(
+        'UPDATE stock_items SET category_name = ? WHERE category_id = ? OR category_name = ?',
+        [trimmed, numId, oldName]
+      );
+
+      return {
+        id: numId,
+        name: trimmed,
+        old_name: oldName,
+      };
+    } catch (err) {
+      if (err.message.includes('already exists') || err.message.includes('Category not found')) throw err;
+      console.warn('⚠️ [StockService Update Cat DB Warning - Using Memory Store]:', err.message);
+
+      const cat = memoryCategories.find((c) => c.id === numId);
+      if (!cat) throw new Error('Category not found');
+
+      const duplicate = memoryCategories.find(
+        (c) => c.name.toLowerCase() === trimmed.toLowerCase() && c.id !== numId
+      );
+      if (duplicate) {
+        throw new Error(`Category "${trimmed}" already exists.`);
+      }
+
+      const oldName = cat.name;
+      cat.name = trimmed;
+
+      // Update memory items
+      memoryItems.forEach((i) => {
+        if (i.category_id === numId || (i.category_name && i.category_name.toLowerCase() === oldName.toLowerCase())) {
+          i.category_name = trimmed;
+        }
+      });
+
+      return { id: numId, name: trimmed, old_name: oldName };
+    }
+  }
+
   async deleteCategory(id) {
     const numId = Number(id);
     try {

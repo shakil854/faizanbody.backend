@@ -21,6 +21,23 @@ export const createCategory = asyncHandler(async (req, res) => {
   return ApiResponse.created(res, category, 'Category created successfully');
 });
 
+export const updateCategory = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { name } = req.body;
+  if (!name || !name.trim()) {
+    throw ApiError.badRequest('Category name is required (કેટેગરીનું નામ જરૂરી છે)');
+  }
+  try {
+    const updated = await stockService.updateCategory(id, name);
+    return ApiResponse.success(res, updated, 'Category updated successfully');
+  } catch (err) {
+    if (err.message.includes('already exists') || err.message.includes('Category not found')) {
+      throw ApiError.badRequest(err.message);
+    }
+    throw err;
+  }
+});
+
 export const deleteCategory = asyncHandler(async (req, res) => {
   const { id } = req.params;
   try {
