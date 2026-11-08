@@ -5,8 +5,8 @@ import { ApiError } from '../utils/apiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 export const getWorkers = asyncHandler(async (req, res) => {
-  const { search = '', status = 'all' } = req.query;
-  const workers = await workerService.getAllWorkers({ search, status });
+  const { search = '', status = 'all', startDate = '', endDate = '' } = req.query;
+  const workers = await workerService.getAllWorkers({ search, status, startDate, endDate });
   return ApiResponse.success(res, workers, 'Workers fetched successfully');
 });
 
@@ -199,7 +199,8 @@ export const deleteWorkerTransaction = asyncHandler(async (req, res) => {
  * Get workshop-wide Khata overall summary
  */
 export const getWorkshopKhataSummary = asyncHandler(async (req, res) => {
-  const summary = await workerService.getWorkshopKhataSummary();
+  const { startDate = '', endDate = '' } = req.query;
+  const summary = await workerService.getWorkshopKhataSummary({ startDate, endDate });
   return ApiResponse.success(res, summary, 'Workshop Khata summary retrieved');
 });
 

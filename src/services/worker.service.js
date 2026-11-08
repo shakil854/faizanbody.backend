@@ -31,8 +31,8 @@ function formatDate(val) {
 }
 
 class WorkerService {
-  async getAllWorkers({ search = '', status = 'all' } = {}) {
-    const isDefaultQuery = !search && status === 'all';
+  async getAllWorkers({ search = '', status = 'all', startDate = '', endDate = '' } = {}) {
+    const isDefaultQuery = !search && status === 'all' && !startDate && !endDate;
 
     // Serve from ultra-fast burst memory cache if available
     if (isDefaultQuery && queryCache && Date.now() - cacheTime < CACHE_TTL_MS) {
@@ -40,6 +40,17 @@ class WorkerService {
     }
 
     try {
+      let joinCondition = 'w.id = t.worker_id';
+      const joinParams = [];
+      if (startDate) {
+        joinCondition += ' AND t.date >= ?';
+        joinParams.push(startDate);
+      }
+      if (endDate) {
+        joinCondition += ' AND t.date <= ?';
+        joinParams.push(endDate);
+      }
+
       let sql = `
         SELECT 
           w.id, w.name, w.mobile, w.aadhar_card, w.coming_date, w.going_date,
@@ -47,10 +58,10 @@ class WorkerService {
           COALESCE(SUM(CASE WHEN t.type = 'upad' THEN t.amount ELSE 0 END), 0) AS total_upad,
           COALESCE(SUM(CASE WHEN t.type = 'payment' THEN t.amount ELSE 0 END), 0) AS total_paid
         FROM workers w
-        LEFT JOIN worker_transactions t ON w.id = t.worker_id
+        LEFT JOIN worker_transactions t ON ${joinCondition}
       `;
       const conditions = [];
-      const params = [];
+      const params = [...joinParams];
 
       if (search && search.trim()) {
         conditions.push('(w.name LIKE ? OR w.mobile LIKE ?)');
@@ -120,7 +131,12 @@ class WorkerService {
       list.sort((a, b) => new Date(b.coming_date) - new Date(a.coming_date));
 
       const result = list.map((w) => {
-        const txs = memoryTransactions.filter((t) => t.worker_id === w.id);
+        const txs = memoryTransactions.filter((t) => {
+          if (t.worker_id !== w.id) return false;
+          if (startDate && t.date < startDate) return false;
+          if (endDate && t.date > endDate) return false;
+          return true;
+        });
         const totalSalary = txs.filter((t) => t.type === 'salary').reduce((sum, t) => sum + Number(t.amount || 0), 0);
         const totalUpad = txs.filter((t) => t.type === 'upad').reduce((sum, t) => sum + Number(t.amount || 0), 0);
         const totalPaid = txs.filter((t) => t.type === 'payment').reduce((sum, t) => sum + Number(t.amount || 0), 0);
@@ -489,15 +505,31 @@ class WorkerService {
   /**
    * Get overall workshop-wide Khata summary
    */
-  async getWorkshopKhataSummary() {
+  async getWorkshopKhataSummary({ startDate = '', endDate = '' } = {}) {
     try {
+      let whereClause = '';
+      const params = [];
+      const conds = [];
+      if (startDate) {
+        conds.push('date >= ?');
+        params.push(startDate);
+      }
+      if (endDate) {
+        conds.push('date <= ?');
+        params.push(endDate);
+      }
+      if (conds.length > 0) {
+        whereClause = `WHERE ${conds.join(' AND ')}`;
+      }
+
       const [rows] = await db.query(`
         SELECT 
           COALESCE(SUM(CASE WHEN type = 'salary' THEN amount ELSE 0 END), 0) AS total_salary,
           COALESCE(SUM(CASE WHEN type = 'upad' THEN amount ELSE 0 END), 0) AS total_upad,
           COALESCE(SUM(CASE WHEN type = 'payment' THEN amount ELSE 0 END), 0) AS total_paid
         FROM worker_transactions
-      `);
+        ${whereClause}
+      `, params);
       const totalSalary = Number(rows[0]?.total_salary) || 0;
       const totalUpad = Number(rows[0]?.total_upad) || 0;
       const totalPaid = Number(rows[0]?.total_paid) || 0;
@@ -510,9 +542,15 @@ class WorkerService {
         balance,
       };
     } catch (error) {
-      const totalSalary = memoryTransactions.filter((t) => t.type === 'salary').reduce((s, t) => s + Number(t.amount || 0), 0);
-      const totalUpad = memoryTransactions.filter((t) => t.type === 'upad').reduce((s, t) => s + Number(t.amount || 0), 0);
-      const totalPaid = memoryTransactions.filter((t) => t.type === 'payment').reduce((s, t) => s + Number(t.amount || 0), 0);
+      console.warn('⚠️ [WorkerService Khata Summary DB Warning]:', error.message);
+      const txs = memoryTransactions.filter((t) => {
+        if (startDate && t.date < startDate) return false;
+        if (endDate && t.date > endDate) return false;
+        return true;
+      });
+      const totalSalary = txs.filter((t) => t.type === 'salary').reduce((sum, t) => sum + Number(t.amount || 0), 0);
+      const totalUpad = txs.filter((t) => t.type === 'upad').reduce((sum, t) => sum + Number(t.amount || 0), 0);
+      const totalPaid = txs.filter((t) => t.type === 'payment').reduce((sum, t) => sum + Number(t.amount || 0), 0);
       const balance = totalSalary - (totalUpad + totalPaid);
 
       return {
