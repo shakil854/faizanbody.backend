@@ -40,28 +40,34 @@ class WorkerService {
     }
 
     try {
-      let joinCondition = 'w.id = t.worker_id';
-      const joinParams = [];
+      let selectFields = '';
+      const params = [];
+
       if (startDate) {
-        joinCondition += ' AND t.date >= ?';
-        joinParams.push(startDate);
-      }
-      if (endDate) {
-        joinCondition += ' AND t.date <= ?';
-        joinParams.push(endDate);
+        selectFields = `
+          COALESCE(SUM(CASE WHEN t.type = 'salary' AND t.date >= ? AND t.date <= ? THEN t.amount ELSE 0 END), 0) AS total_salary,
+          COALESCE(SUM(CASE WHEN t.type = 'upad' AND t.date >= ? AND t.date <= ? THEN t.amount ELSE 0 END), 0) AS total_upad,
+          COALESCE(SUM(CASE WHEN t.type = 'payment' AND t.date >= ? AND t.date <= ? THEN t.amount ELSE 0 END), 0) AS total_paid,
+          COALESCE(SUM(CASE WHEN t.date < ? THEN (CASE WHEN t.type IN ('upad', 'payment') THEN t.amount WHEN t.type = 'salary' THEN -t.amount ELSE 0 END) ELSE 0 END), 0) AS opening_balance
+        `;
+        params.push(startDate, endDate || '9999-12-31', startDate, endDate || '9999-12-31', startDate, endDate || '9999-12-31', startDate);
+      } else {
+        selectFields = `
+          COALESCE(SUM(CASE WHEN t.type = 'salary' THEN t.amount ELSE 0 END), 0) AS total_salary,
+          COALESCE(SUM(CASE WHEN t.type = 'upad' THEN t.amount ELSE 0 END), 0) AS total_upad,
+          COALESCE(SUM(CASE WHEN t.type = 'payment' THEN t.amount ELSE 0 END), 0) AS total_paid,
+          0 AS opening_balance
+        `;
       }
 
       let sql = `
         SELECT 
           w.id, w.name, w.mobile, w.aadhar_card, w.coming_date, w.going_date,
-          COALESCE(SUM(CASE WHEN t.type = 'salary' THEN t.amount ELSE 0 END), 0) AS total_salary,
-          COALESCE(SUM(CASE WHEN t.type = 'upad' THEN t.amount ELSE 0 END), 0) AS total_upad,
-          COALESCE(SUM(CASE WHEN t.type = 'payment' THEN t.amount ELSE 0 END), 0) AS total_paid
+          ${selectFields}
         FROM workers w
-        LEFT JOIN worker_transactions t ON ${joinCondition}
+        LEFT JOIN worker_transactions t ON w.id = t.worker_id
       `;
       const conditions = [];
-      const params = [...joinParams];
 
       if (search && search.trim()) {
         conditions.push('(w.name LIKE ? OR w.mobile LIKE ?)');
@@ -85,7 +91,10 @@ class WorkerService {
         const totalSalary = Number(w.total_salary) || 0;
         const totalUpad = Number(w.total_upad) || 0;
         const totalPaid = Number(w.total_paid) || 0;
-        const balance = totalSalary - (totalUpad + totalPaid);
+        const openingBalance = Number(w.opening_balance) || 0; // > 0 means advance B/F, < 0 means credit B/F
+        const closingUpad = (openingBalance > 0 ? openingBalance : 0) + totalUpad + totalPaid;
+        const closingWork = (openingBalance < 0 ? Math.abs(openingBalance) : 0) + totalSalary;
+        const balance = closingWork - closingUpad; // > 0: Payable, < 0: Advance Due
 
         return {
           id: w.id,
@@ -99,6 +108,8 @@ class WorkerService {
             total_salary: totalSalary,
             total_upad: totalUpad,
             total_paid: totalPaid,
+            opening_balance: openingBalance,
+            closing_balance: Math.abs(balance),
             balance: balance,
           },
         };
