@@ -263,6 +263,102 @@ export async function sendOtpEmail({ toEmail, userName = 'User', otp, type = 'fo
   }
 }
 
+/**
+ * Send Automated Database Backup to Google Account Email
+ */
+export async function sendBackupEmail({ toEmail, filename, content, dateStr }) {
+  const subject = `Faizan Body - Automated Daily Database Backup (${dateStr})`;
+  const senderUser = process.env.SMTP_USER || config.email.user;
+  const fromHeader = `Faizan Body <${senderUser}>`;
+
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html lang="gu">
+    <head><meta charset="utf-8"></head>
+    <body style="font-family: sans-serif; background-color: #f8fafc; padding: 20px;">
+      <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden;">
+        <div style="background: #1e3a8a; padding: 20px; text-align: center; color: #ffffff;">
+          <h2 style="margin: 0; font-size: 20px;">🛡️ Faizan Body - દૈનિક ડેટાબેઝ બેકઅપ</h2>
+        </div>
+        <div style="padding: 24px; color: #334155; font-size: 15px; line-height: 1.6;">
+          <p>નમસ્તે,</p>
+          <p>તમારા Faizan Body એકાઉન્ટ માટે આજનો સંપૂર્ણ ડેટાબેઝ બેકઅપ સફળતાપૂર્વક લેવાયો છે અને આ ઈમેલ સાથે એટેચ કરેલ છે:</p>
+          <div style="background: #f1f5f9; padding: 14px; border-radius: 8px; margin: 16px 0;">
+            📁 <strong>ફાઈલનું નામ:</strong> ${filename}<br>
+            📅 <strong>તારીખ:</strong> ${dateStr}<br>
+            💾 <strong>પ્રકાર:</strong> Single Complete JSON (.json)<br>
+            🛡️ <strong>ટેબલ્સ:</strong> All 12 Database Tables Included
+          </div>
+          <p style="font-size: 13px; color: #64748b;">
+            આ ફાઈલ તમારા Google Drive માં સીધી સેવ કરવા માટે ઈમેલ એટેચમેન્ટ પર "Save to Drive" આઇકન દબાવો.
+          </p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  // 1. Try Brevo HTTPS with attachment if configured
+  if (process.env.BREVO_API_KEY) {
+    try {
+      const base64Content = Buffer.from(content).toString('base64');
+      const bRes = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'api-key': process.env.BREVO_API_KEY,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          sender: { name: 'Faizan Body Build', email: process.env.BREVO_SENDER || senderUser },
+          to: [{ email: toEmail }],
+          subject,
+          htmlContent,
+          attachment: [
+            {
+              name: filename,
+              content: base64Content,
+            },
+          ],
+        }),
+      });
+      if (bRes.ok) {
+        return { success: true, delivered: true };
+      }
+    } catch (e) {
+      console.warn('Brevo backup send warning:', e.message);
+    }
+  }
+
+  // 2. Nodemailer SMTP with attachment
+  const activeTransporter = getTransporter();
+  if (activeTransporter) {
+    try {
+      await activeTransporter.sendMail({
+        from: fromHeader,
+        to: toEmail,
+        subject,
+        html: htmlContent,
+        attachments: [
+          {
+            filename,
+            content,
+            contentType: 'application/json',
+          },
+        ],
+      });
+      console.log(`✅ [Backup Email] Delivered daily backup to ${toEmail}`);
+      return { success: true, delivered: true };
+    } catch (err) {
+      console.warn('Nodemailer backup send warning:', err.message);
+      return { success: false, error: err.message };
+    }
+  }
+
+  return { success: false, error: 'No email transport configured' };
+}
+
 export default {
   sendOtpEmail,
+  sendBackupEmail,
 };

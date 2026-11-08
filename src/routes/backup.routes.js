@@ -10,6 +10,9 @@ import {
   restoreFromUploadedFile,
   restoreFromServer,
   triggerManualBackup,
+  getGoogleDriveSettings,
+  saveGoogleDriveSettings,
+  testGoogleDriveUpload,
 } from '../controllers/backup.controller.js';
 import { verifyToken, authorizeRoles } from '../middlewares/auth.middleware.js';
 
@@ -39,6 +42,9 @@ router.get('/backup/server-file/:filename', downloadServerBackup);
 router.post('/backup/manual-now', triggerManualBackup);
 router.post('/backup/restore-file', uploadBackup.single('backupFile'), restoreFromUploadedFile);
 router.post('/backup/restore-server', restoreFromServer);
+router.get('/backup/google-drive-settings', getGoogleDriveSettings);
+router.post('/backup/google-drive-settings', saveGoogleDriveSettings);
+router.post('/backup/google-drive-test', testGoogleDriveUpload);
 
 export default router;
 

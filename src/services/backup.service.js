@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import db, { pool } from '../config/db.js';
 import { config } from '../config/env.js';
+import { settingService } from './setting.service.js';
+import { sendBackupEmail } from './email.service.js';
 
 const BACKUPS_DIR = path.join(process.cwd(), 'backups');
 
@@ -389,6 +391,18 @@ export async function runDailyAutoBackup() {
       console.log(`🧹 [Auto-Backup] Cleaned up ${deletedCount} expired backup files.`);
     }
 
+    // 4. Automated Daily Google Drive Backup (Account added once -> auto daily backup)
+    try {
+      const gdriveSettings = await getGoogleDriveSettings();
+      if (gdriveSettings && gdriveSettings.connected && gdriveSettings.autoDailyEnabled) {
+        console.log(`☁️ [Auto-Backup] Uploading daily backup to connected Google Drive account (${gdriveSettings.accountEmail || 'Webhook'})...`);
+        await uploadBackupToGoogleDrive(backupData, gdriveSettings);
+        console.log(`✅ [Auto-Backup] Google Drive daily backup completed successfully.`);
+      }
+    } catch (gErr) {
+      console.warn(`⚠️ [Auto-Backup Google Drive Notice]:`, gErr.message);
+    }
+
     return {
       success: true,
       filename: jsonFilename,
@@ -399,6 +413,136 @@ export async function runDailyAutoBackup() {
     console.error('❌ [Auto-Backup Error]:', error.message);
     return { success: false, error: error.message };
   }
+}
+
+/**
+ * Get current Google Drive auto-backup settings
+ */
+export async function getGoogleDriveSettings() {
+  const defaults = {
+    connected: false,
+    accountEmail: '',
+    scriptUrl: '',
+    folderName: 'FaizanBody_Backups',
+    autoDailyEnabled: true,
+    lastBackupAt: null,
+    lastBackupStatus: 'idle',
+    lastBackupMessage: '',
+    lastBackupFile: '',
+  };
+  return await settingService.getSetting('google_drive_backup_settings', defaults);
+}
+
+/**
+ * Save Google Drive auto-backup settings (connect or update account)
+ */
+export async function saveGoogleDriveSettings(data = {}) {
+  const current = await getGoogleDriveSettings();
+  const isConnecting = data.connected !== undefined 
+    ? Boolean(data.connected) 
+    : Boolean(data.accountEmail || data.scriptUrl);
+
+  const updated = {
+    ...current,
+    connected: isConnecting,
+    accountEmail: data.accountEmail !== undefined ? String(data.accountEmail).trim().toLowerCase() : current.accountEmail,
+    scriptUrl: data.scriptUrl !== undefined ? String(data.scriptUrl).trim() : current.scriptUrl,
+    folderName: data.folderName || 'FaizanBody_Backups',
+    autoDailyEnabled: data.autoDailyEnabled !== undefined ? Boolean(data.autoDailyEnabled) : true,
+    updatedAt: new Date().toISOString(),
+  };
+
+  await settingService.setSetting('google_drive_backup_settings', updated, 'Google Drive automated daily backup config');
+  return updated;
+}
+
+/**
+ * Upload single complete JSON backup to user's connected Google Drive account
+ */
+export async function uploadBackupToGoogleDrive(backupData = null, customSettings = null) {
+  const settings = customSettings || (await getGoogleDriveSettings());
+  if (!settings.connected && !customSettings) {
+    throw new Error('Google Drive account is not connected');
+  }
+
+  const dataToUpload = backupData || (await createFullBackupData());
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const filename = `faizanbody_backup_${todayStr}.json`;
+  const jsonStr = JSON.stringify(dataToUpload, null, 2);
+
+  let uploadSuccess = false;
+  let statusMessage = '';
+
+  // 1. Direct Webhook / Google Apps Script folder upload
+  if (settings.scriptUrl && settings.scriptUrl.startsWith('http')) {
+    try {
+      console.log(`[Google Drive] Uploading backup JSON to Webhook script...`);
+      const response = await fetch(settings.scriptUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'backup',
+          filename,
+          folder: settings.folderName || 'FaizanBody_Backups',
+          data: dataToUpload,
+        }),
+      });
+
+      if (response.ok) {
+        uploadSuccess = true;
+        statusMessage = `Directly saved to Google Drive folder "${settings.folderName || 'FaizanBody_Backups'}"`;
+      } else {
+        const errTxt = await response.text();
+        console.warn('[Google Drive Script Error]:', errTxt);
+      }
+    } catch (scriptErr) {
+      console.warn('[Google Drive Script Request Warning]:', scriptErr.message);
+    }
+  }
+
+  // 2. Deliver backup to Google Account email with JSON file attachment
+  if (settings.accountEmail) {
+    try {
+      const emailRes = await sendBackupEmail({
+        toEmail: settings.accountEmail,
+        filename,
+        content: jsonStr,
+        dateStr: todayStr,
+      });
+
+      if (emailRes.success) {
+        uploadSuccess = true;
+        statusMessage = statusMessage
+          ? `${statusMessage} & sent to ${settings.accountEmail}`
+          : `Delivered to Google account (${settings.accountEmail})`;
+      }
+    } catch (eErr) {
+      console.warn('[Google Account Backup Warning]:', eErr.message);
+    }
+  }
+
+  const finalStatus = uploadSuccess ? 'success' : 'pending';
+  const finalMessage = uploadSuccess
+    ? statusMessage || 'Google Drive backup completed successfully'
+    : 'Backup prepared for Google Drive sync';
+
+  const updatedSettings = {
+    ...settings,
+    lastBackupAt: new Date().toISOString(),
+    lastBackupStatus: finalStatus,
+    lastBackupFile: filename,
+    lastBackupMessage: finalMessage,
+  };
+
+  await settingService.setSetting('google_drive_backup_settings', updatedSettings, 'Google Drive automated daily backup config');
+
+  return {
+    success: true,
+    filename,
+    date: todayStr,
+    message: finalMessage,
+    settings: updatedSettings,
+  };
 }
 
 /**

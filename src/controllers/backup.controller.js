@@ -8,6 +8,9 @@ import {
   listServerBackups,
   runDailyAutoBackup,
   restoreFromServerBackupFile,
+  getGoogleDriveSettings as getDriveSettingsService,
+  saveGoogleDriveSettings as saveDriveSettingsService,
+  uploadBackupToGoogleDrive,
 } from '../services/backup.service.js';
 
 /**
@@ -217,6 +220,68 @@ export async function triggerManualBackup(req, res) {
     return res.status(500).json({
       success: false,
       message: error.message || 'Failed to create manual backup',
+    });
+  }
+}
+
+/**
+ * GET /api/backup/google-drive-settings
+ * Retrieve Google Drive auto backup config
+ */
+export async function getGoogleDriveSettings(req, res) {
+  try {
+    const settings = await getDriveSettingsService();
+    return res.json({
+      success: true,
+      data: settings,
+    });
+  } catch (error) {
+    console.error('Error fetching Google Drive settings:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch Google Drive settings',
+    });
+  }
+}
+
+/**
+ * POST /api/backup/google-drive-settings
+ * Save/update Google Drive auto backup config
+ */
+export async function saveGoogleDriveSettings(req, res) {
+  try {
+    const updated = await saveDriveSettingsService(req.body);
+    return res.json({
+      success: true,
+      message: 'Google Drive settings updated successfully',
+      data: updated,
+    });
+  } catch (error) {
+    console.error('Error updating Google Drive settings:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to update Google Drive settings',
+    });
+  }
+}
+
+/**
+ * POST /api/backup/google-drive-test
+ * Trigger immediate test upload to connected Google Drive account
+ */
+export async function testGoogleDriveUpload(req, res) {
+  try {
+    const result = await uploadBackupToGoogleDrive();
+    return res.json({
+      success: true,
+      message: result.message || 'Test backup successfully sent to Google Drive',
+      data: result,
+    });
+  } catch (error) {
+    console.error('Error testing Google Drive upload:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to upload test backup to Google Drive',
     });
   }
 }
