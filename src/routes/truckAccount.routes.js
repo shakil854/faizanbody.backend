@@ -9,27 +9,26 @@ import {
   updateTruckAccountEntry,
   deleteTruckAccountEntry,
 } from '../controllers/truckAccount.controller.js';
-import { verifyToken, requirePermission } from '../middlewares/auth.middleware.js';
+import { verifyToken, requireAnyPermission } from '../middlewares/auth.middleware.js';
 
 const router = Router();
 
-// Truck Accounts CRUD
+// Truck Accounts CRUD (Matches Workers & Other modules permission flow)
 router.route('/truck-accounts')
-  .get(verifyToken, getTruckAccounts)
-  .post(verifyToken, createTruckAccount);
+  .get(verifyToken, requireAnyPermission('truck_accounts:view', 'workers:view'), getTruckAccounts)
+  .post(verifyToken, requireAnyPermission('truck_accounts:create', 'workers:create'), createTruckAccount);
 
 router.route('/truck-accounts/:id')
-  .get(verifyToken, getTruckAccountById)
-  .put(verifyToken, updateTruckAccount)
-  .delete(verifyToken, deleteTruckAccount);
+  .get(verifyToken, requireAnyPermission('truck_accounts:view', 'workers:view'), getTruckAccountById)
+  .put(verifyToken, requireAnyPermission('truck_accounts:edit', 'workers:edit'), updateTruckAccount)
+  .delete(verifyToken, requireAnyPermission('truck_accounts:delete', 'workers:delete'), deleteTruckAccount);
 
 // Truck Account Entries (Jama / Udhar)
 router.route('/truck-accounts/:id/entries')
-  .post(verifyToken, addTruckAccountEntry);
+  .post(verifyToken, requireAnyPermission('truck_accounts:khata', 'workers:khata'), addTruckAccountEntry);
 
 router.route('/truck-accounts/:id/entries/:entryId')
-  .put(verifyToken, updateTruckAccountEntry)
-  .delete(verifyToken, deleteTruckAccountEntry);
+  .put(verifyToken, requireAnyPermission('truck_accounts:khata', 'workers:khata'), updateTruckAccountEntry)
+  .delete(verifyToken, requireAnyPermission('truck_accounts:khata', 'workers:khata'), deleteTruckAccountEntry);
 
 export default router;
-
