@@ -11,6 +11,7 @@ import {
 import { SettingModel } from './setting.model.js';
 import { SessionModel } from './session.model.js';
 import { QuotationModel, QuotationCatalogItemModel } from './quotation.model.js';
+import { TruckAccountModel, TruckAccountEntryModel } from './truckAccount.model.js';
 
 export const models = [
   WorkerModel,
@@ -25,6 +26,8 @@ export const models = [
   SessionModel,
   QuotationModel,
   QuotationCatalogItemModel,
+  TruckAccountModel,
+  TruckAccountEntryModel,
 ];
 
 export {
@@ -40,6 +43,8 @@ export {
   SessionModel,
   QuotationModel,
   QuotationCatalogItemModel,
+  TruckAccountModel,
+  TruckAccountEntryModel,
 };
 
 export default models;

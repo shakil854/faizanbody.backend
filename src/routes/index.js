@@ -8,6 +8,7 @@ import stockRoutes from './stock.routes.js';
 import userRoutes from './user.routes.js';
 import quotationRoutes from './quotation.routes.js';
 import backupRoutes from './backup.routes.js';
+import truckAccountRoutes from './truckAccount.routes.js';
 
 const router = Router();
 
@@ -21,6 +22,7 @@ router.use('/', stockRoutes);
 router.use('/', userRoutes);
 router.use('/', quotationRoutes);
 router.use('/', backupRoutes);
+router.use('/', truckAccountRoutes);
 
 export default router;
 
