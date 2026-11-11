@@ -36,12 +36,14 @@ export const TruckAccountEntryModel = {
     date: 'DATE NOT NULL',
     particulars: 'VARCHAR(255) NOT NULL',
     payment_mode: "VARCHAR(50) NULL DEFAULT 'Cash'",
+    rojmed_entry_id: 'INT NULL',
     created_at: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
     updated_at: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
   },
   indexes: [
     { name: 'idx_truck_entries_account', column: 'account_id' },
     { name: 'idx_truck_entries_date', column: 'date' },
+    { name: 'idx_truck_entries_rojmed', column: 'rojmed_entry_id' },
   ],
   initialSeed: [], // Strict Zero Dummy Data Rule: Always empty
 };

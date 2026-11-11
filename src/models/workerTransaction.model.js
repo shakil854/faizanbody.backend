@@ -13,6 +13,7 @@ export const WorkerTransactionModel = {
     date: 'DATE NOT NULL',
     notes: 'VARCHAR(255) NULL',
     payment_mode: "VARCHAR(50) DEFAULT 'Cash'",
+    rojmed_entry_id: 'INT NULL',
     created_at: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
     updated_at: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
   },
@@ -20,6 +21,7 @@ export const WorkerTransactionModel = {
     { name: 'idx_worker_tx_worker', column: 'worker_id' },
     { name: 'idx_worker_tx_date', column: 'date' },
     { name: 'idx_worker_tx_type', column: 'type' },
+    { name: 'idx_worker_tx_rojmed', column: 'rojmed_entry_id' },
   ],
   initialSeed: [],
 };

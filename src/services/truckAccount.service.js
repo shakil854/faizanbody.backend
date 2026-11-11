@@ -1,4 +1,5 @@
-import db from '../config/db.js';
+import db, { pool } from '../config/db.js';
+import { rojmedService } from './rojmed.service.js';
 
 /**
  * In-memory fallback dataset for when MySQL is offline
@@ -19,6 +20,17 @@ function formatDate(val) {
     return `${yyyy}-${mm}-${dd}`;
   }
   return val;
+}
+
+function formatTruckRojmedMapping(type, partyName, truckNo, particulars) {
+  const cleanPart = particulars ? String(particulars).trim() : '';
+  const accountLabel = truckNo ? `${partyName} (${truckNo})` : partyName;
+  const isUdhar = type === 'udhar';
+  return {
+    entry_type: isUdhar ? 'javak' : 'aavak',
+    sub_type: isUdhar ? 'udhar' : 'jama',
+    particulars: cleanPart ? `${accountLabel} - ${cleanPart}` : `${accountLabel} - ${isUdhar ? 'ઉધાર' : 'રોકડા જમા'}`,
+  };
 }
 
 class TruckAccountService {
@@ -120,6 +132,7 @@ class TruckAccountService {
         date: formatDate(e.date),
         particulars: e.particulars || '',
         payment_mode: e.payment_mode || 'Cash',
+        rojmed_entry_id: e.rojmed_entry_id ? Number(e.rojmed_entry_id) : null,
         created_at: e.created_at,
       }));
 
@@ -235,11 +248,15 @@ class TruckAccountService {
   }
 
   /**
-   * Delete truck account & all its entries
+   * Delete truck account & all its entries (preserving historical Rojmed cash Silak)
    */
   async deleteAccount(id) {
     const numId = Number(id);
     try {
+      await db.query(
+        "UPDATE rojmed_entries SET linked_tx_id = NULL WHERE source_type = 'truck_account' AND source_id = ?",
+        [numId]
+      ).catch(() => {});
       await db.query('DELETE FROM truck_account_entries WHERE account_id = ?', [numId]);
       await db.query('DELETE FROM truck_accounts WHERE id = ?', [numId]);
       return { success: true, id: numId };
@@ -253,19 +270,75 @@ class TruckAccountService {
 
   /**
    * Add entry (Jama or Udhar) to truck account
+   * Optionally syncs with Daily Rojmed when add_to_rojmed is true and payment_mode is Cash.
    */
   async addEntry(accountId, data) {
     const numAccId = Number(accountId);
-    const { type, amount, date, particulars, payment_mode } = data;
+    const {
+      type,
+      amount,
+      date,
+      particulars,
+      payment_mode,
+      add_to_rojmed = false,
+      rojmed_entry_id = null,
+      _skipRojmedSync = false,
+    } = data;
     const cleanType = type === 'udhar' ? 'udhar' : 'jama';
     const cleanAmt = Number(amount) || 0;
-    const cleanDate = date || new Date().toISOString().split('T')[0];
+    const cleanDate = formatDate(date) || formatDate(new Date());
     const cleanPart = particulars ? particulars.trim() : (cleanType === 'jama' ? 'રોકડા જમા' : 'ગાડી ની કિંમત');
+    const cleanMode = payment_mode ? String(payment_mode).trim() : 'Cash';
+    const shouldSyncRojmed = Boolean(add_to_rojmed) && cleanMode === 'Cash' && !_skipRojmedSync;
 
+    let conn = null;
     try {
+      if (shouldSyncRojmed) {
+        conn = await pool.getConnection();
+        await conn.beginTransaction();
+
+        const [accRows] = await conn.query(
+          'SELECT party_name, truck_no FROM truck_accounts WHERE id = ? LIMIT 1',
+          [numAccId]
+        );
+        const partyName = accRows?.[0]?.party_name || `Truck #${numAccId}`;
+        const truckNo = accRows?.[0]?.truck_no || '';
+
+        const [res] = await conn.query(
+          `INSERT INTO truck_account_entries (account_id, type, amount, date, particulars, payment_mode)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [numAccId, cleanType, cleanAmt, cleanDate, cleanPart, cleanMode]
+        );
+        const txId = res.insertId;
+
+        const map = formatTruckRojmedMapping(cleanType, partyName, truckNo, cleanPart);
+        const [rRes] = await conn.query(
+          `INSERT INTO rojmed_entries
+            (date, entry_type, amount, particulars, source_type, source_id, sub_type, linked_tx_id, payment_mode, notes)
+           VALUES (?, ?, ?, ?, 'truck_account', ?, ?, ?, 'Cash', ?)`,
+          [cleanDate, map.entry_type, cleanAmt, map.particulars, numAccId, map.sub_type, txId, cleanPart]
+        );
+        const linkedRojmedId = rRes.insertId;
+
+        await conn.query('UPDATE truck_account_entries SET rojmed_entry_id = ? WHERE id = ?', [linkedRojmedId, txId]);
+        await conn.commit();
+
+        return {
+          id: txId,
+          account_id: numAccId,
+          type: cleanType,
+          amount: cleanAmt,
+          date: cleanDate,
+          particulars: cleanPart,
+          payment_mode: cleanMode,
+          rojmed_entry_id: linkedRojmedId,
+        };
+      }
+
       const [res] = await db.query(
-        `INSERT INTO truck_account_entries (account_id, type, amount, date, particulars, payment_mode) VALUES (?, ?, ?, ?, ?, ?)`,
-        [numAccId, cleanType, cleanAmt, cleanDate, cleanPart, payment_mode || 'Cash']
+        `INSERT INTO truck_account_entries (account_id, type, amount, date, particulars, payment_mode, rojmed_entry_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [numAccId, cleanType, cleanAmt, cleanDate, cleanPart, cleanMode, rojmed_entry_id]
       );
       return {
         id: res.insertId,
@@ -274,42 +347,126 @@ class TruckAccountService {
         amount: cleanAmt,
         date: cleanDate,
         particulars: cleanPart,
-        payment_mode: payment_mode || 'Cash',
+        payment_mode: cleanMode,
+        rojmed_entry_id: rojmed_entry_id ? Number(rojmed_entry_id) : null,
       };
     } catch (err) {
+      if (conn) await conn.rollback().catch(() => {});
       console.warn('⚠️ [TruckAccountService addEntry DB Fallback]:', err.message);
+      const txId = nextEntryId++;
+      let finalRojmedId = rojmed_entry_id ? Number(rojmed_entry_id) : null;
+
+      if (shouldSyncRojmed) {
+        const acc = memoryTruckAccounts.find((a) => a.id === numAccId);
+        const partyName = acc?.party_name || `Truck #${numAccId}`;
+        const truckNo = acc?.truck_no || '';
+        const map = formatTruckRojmedMapping(cleanType, partyName, truckNo, cleanPart);
+        finalRojmedId = rojmedService.syncMemoryFromLinkedTx({
+          action: 'create',
+          sourceType: 'truck_account',
+          sourceId: numAccId,
+          linkedTxId: txId,
+          entryType: map.entry_type,
+          subType: map.sub_type,
+          amount: cleanAmt,
+          date: cleanDate,
+          particulars: map.particulars,
+          notes: cleanPart,
+          truckPartyName: partyName,
+          truckNo,
+          truckPageNo: acc?.page_no ?? null,
+        });
+      }
+
       const newEntry = {
-        id: nextEntryId++,
+        id: txId,
         account_id: numAccId,
         type: cleanType,
         amount: cleanAmt,
         date: cleanDate,
         particulars: cleanPart,
-        payment_mode: payment_mode || 'Cash',
+        payment_mode: cleanMode,
+        rojmed_entry_id: finalRojmedId,
         created_at: new Date().toISOString(),
       };
       memoryTruckEntries.push(newEntry);
       return newEntry;
+    } finally {
+      if (conn) conn.release();
     }
   }
 
   /**
-   * Update entry in truck account
+   * Update entry in truck account (and keep linked Rojmed entry in sync)
    */
   async updateEntry(accountId, entryId, data) {
     const numAccId = Number(accountId);
     const numEntryId = Number(entryId);
-    const { type, amount, date, particulars, payment_mode } = data;
+    const { type, amount, date, particulars, payment_mode, add_to_rojmed, _skipRojmedSync = false } = data;
     const cleanType = type === 'udhar' ? 'udhar' : 'jama';
     const cleanAmt = Number(amount) || 0;
-    const cleanDate = date || new Date().toISOString().split('T')[0];
+    const cleanDate = formatDate(date) || formatDate(new Date());
     const cleanPart = particulars ? particulars.trim() : (cleanType === 'jama' ? 'રોકડા જમા' : 'ગાડી ની કિંમત');
+    const cleanMode = payment_mode ? String(payment_mode).trim() : 'Cash';
 
+    let conn = null;
     try {
-      await db.query(
-        `UPDATE truck_account_entries SET type = ?, amount = ?, date = ?, particulars = ?, payment_mode = ? WHERE id = ? AND account_id = ?`,
-        [cleanType, cleanAmt, cleanDate, cleanPart, payment_mode || 'Cash', numEntryId, numAccId]
+      conn = await pool.getConnection();
+      await conn.beginTransaction();
+
+      const [existingRows] = await conn.query(
+        `SELECT e.*, a.party_name, a.truck_no
+         FROM truck_account_entries e
+         LEFT JOIN truck_accounts a ON e.account_id = a.id
+         WHERE e.id = ? AND e.account_id = ? LIMIT 1`,
+        [numEntryId, numAccId]
       );
+      if (!existingRows || existingRows.length === 0) {
+        await conn.rollback();
+        return null;
+      }
+      const existing = existingRows[0];
+      const partyName = existing.party_name || `Truck #${numAccId}`;
+      const truckNo = existing.truck_no || '';
+      let finalRojmedId = existing.rojmed_entry_id ? Number(existing.rojmed_entry_id) : null;
+
+      await conn.query(
+        `UPDATE truck_account_entries
+         SET type = ?, amount = ?, date = ?, particulars = ?, payment_mode = ?
+         WHERE id = ? AND account_id = ?`,
+        [cleanType, cleanAmt, cleanDate, cleanPart, cleanMode, numEntryId, numAccId]
+      );
+
+      if (!_skipRojmedSync) {
+        const wantRojmed = add_to_rojmed !== undefined ? Boolean(add_to_rojmed) : Boolean(finalRojmedId);
+        const canStayInRojmed = wantRojmed && cleanMode === 'Cash';
+
+        if (finalRojmedId && !canStayInRojmed) {
+          await conn.query('DELETE FROM rojmed_entries WHERE id = ?', [finalRojmedId]);
+          await conn.query('UPDATE truck_account_entries SET rojmed_entry_id = NULL WHERE id = ?', [numEntryId]);
+          finalRojmedId = null;
+        } else if (finalRojmedId && canStayInRojmed) {
+          const map = formatTruckRojmedMapping(cleanType, partyName, truckNo, cleanPart);
+          await conn.query(
+            `UPDATE rojmed_entries
+             SET date = ?, entry_type = ?, amount = ?, particulars = ?, sub_type = ?, notes = ?
+             WHERE id = ?`,
+            [cleanDate, map.entry_type, cleanAmt, map.particulars, map.sub_type, cleanPart, finalRojmedId]
+          );
+        } else if (!finalRojmedId && canStayInRojmed) {
+          const map = formatTruckRojmedMapping(cleanType, partyName, truckNo, cleanPart);
+          const [rRes] = await conn.query(
+            `INSERT INTO rojmed_entries
+              (date, entry_type, amount, particulars, source_type, source_id, sub_type, linked_tx_id, payment_mode, notes)
+             VALUES (?, ?, ?, ?, 'truck_account', ?, ?, ?, 'Cash', ?)`,
+            [cleanDate, map.entry_type, cleanAmt, map.particulars, numAccId, map.sub_type, numEntryId, cleanPart]
+          );
+          finalRojmedId = rRes.insertId;
+          await conn.query('UPDATE truck_account_entries SET rojmed_entry_id = ? WHERE id = ?', [finalRojmedId, numEntryId]);
+        }
+      }
+
+      await conn.commit();
       return {
         id: numEntryId,
         account_id: numAccId,
@@ -317,39 +474,100 @@ class TruckAccountService {
         amount: cleanAmt,
         date: cleanDate,
         particulars: cleanPart,
-        payment_mode: payment_mode || 'Cash',
+        payment_mode: cleanMode,
+        rojmed_entry_id: finalRojmedId,
       };
     } catch (err) {
+      if (conn) await conn.rollback().catch(() => {});
       console.warn('⚠️ [TruckAccountService updateEntry DB Fallback]:', err.message);
       const idx = memoryTruckEntries.findIndex((e) => e.id === numEntryId && e.account_id === numAccId);
-      if (idx !== -1) {
-        memoryTruckEntries[idx] = {
-          ...memoryTruckEntries[idx],
-          type: cleanType,
-          amount: cleanAmt,
-          date: cleanDate,
-          particulars: cleanPart,
-          payment_mode: payment_mode || memoryTruckEntries[idx].payment_mode,
-        };
-        return memoryTruckEntries[idx];
+      if (idx === -1) return null;
+
+      const existing = memoryTruckEntries[idx];
+      let finalRojmedId = existing.rojmed_entry_id || null;
+
+      if (!_skipRojmedSync) {
+        const acc = memoryTruckAccounts.find((a) => a.id === numAccId);
+        const partyName = acc?.party_name || `Truck #${numAccId}`;
+        const truckNo = acc?.truck_no || '';
+        const wantRojmed = add_to_rojmed !== undefined ? Boolean(add_to_rojmed) : Boolean(finalRojmedId);
+        const canStayInRojmed = wantRojmed && cleanMode === 'Cash';
+
+        if (finalRojmedId && !canStayInRojmed) {
+          rojmedService.syncMemoryFromLinkedTx({ action: 'delete', rojmedEntryId: finalRojmedId });
+          finalRojmedId = null;
+        } else if (canStayInRojmed) {
+          const map = formatTruckRojmedMapping(cleanType, partyName, truckNo, cleanPart);
+          finalRojmedId = rojmedService.syncMemoryFromLinkedTx({
+            action: finalRojmedId ? 'update' : 'create',
+            rojmedEntryId: finalRojmedId,
+            sourceType: 'truck_account',
+            sourceId: numAccId,
+            linkedTxId: numEntryId,
+            entryType: map.entry_type,
+            subType: map.sub_type,
+            amount: cleanAmt,
+            date: cleanDate,
+            particulars: map.particulars,
+            notes: cleanPart,
+            truckPartyName: partyName,
+            truckNo,
+            truckPageNo: acc?.page_no ?? null,
+          });
+        }
       }
-      return null;
+
+      memoryTruckEntries[idx] = {
+        ...existing,
+        type: cleanType,
+        amount: cleanAmt,
+        date: cleanDate,
+        particulars: cleanPart,
+        payment_mode: cleanMode,
+        rojmed_entry_id: finalRojmedId,
+      };
+      return memoryTruckEntries[idx];
+    } finally {
+      if (conn) conn.release();
     }
   }
 
   /**
-   * Delete entry from truck account
+   * Delete entry from truck account (and its linked Rojmed entry if any)
    */
-  async deleteEntry(accountId, entryId) {
+  async deleteEntry(accountId, entryId, { _skipRojmedSync = false } = {}) {
     const numAccId = Number(accountId);
     const numEntryId = Number(entryId);
+    let conn = null;
+
     try {
-      await db.query('DELETE FROM truck_account_entries WHERE id = ? AND account_id = ?', [numEntryId, numAccId]);
+      conn = await pool.getConnection();
+      await conn.beginTransaction();
+
+      const [existingRows] = await conn.query(
+        'SELECT rojmed_entry_id FROM truck_account_entries WHERE id = ? AND account_id = ? LIMIT 1',
+        [numEntryId, numAccId]
+      );
+      const linkedRojmedId = existingRows?.[0]?.rojmed_entry_id || null;
+
+      await conn.query('DELETE FROM truck_account_entries WHERE id = ? AND account_id = ?', [numEntryId, numAccId]);
+      if (!_skipRojmedSync && linkedRojmedId) {
+        await conn.query('DELETE FROM rojmed_entries WHERE id = ?', [linkedRojmedId]);
+      }
+
+      await conn.commit();
       return { success: true, id: numEntryId };
     } catch (err) {
+      if (conn) await conn.rollback().catch(() => {});
       console.warn('⚠️ [TruckAccountService deleteEntry DB Fallback]:', err.message);
+      const existing = memoryTruckEntries.find((e) => e.id === numEntryId && e.account_id === numAccId);
+      if (!_skipRojmedSync && existing?.rojmed_entry_id) {
+        rojmedService.syncMemoryFromLinkedTx({ action: 'delete', rojmedEntryId: existing.rojmed_entry_id });
+      }
       memoryTruckEntries = memoryTruckEntries.filter((e) => !(e.id === numEntryId && e.account_id === numAccId));
       return { success: true, id: numEntryId };
+    } finally {
+      if (conn) conn.release();
     }
   }
 }

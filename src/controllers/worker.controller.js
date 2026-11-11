@@ -117,7 +117,7 @@ export const getWorkerTransactions = asyncHandler(async (req, res) => {
  */
 export const addWorkerTransaction = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { type, amount, date, notes, payment_mode } = req.body;
+  const { type, amount, date, notes, payment_mode, add_to_rojmed } = req.body;
 
   if (!type || !['upad', 'payment', 'salary'].includes(type)) {
     throw ApiError.badRequest('Valid transaction type is required (upad, payment, or salary)');
@@ -134,6 +134,7 @@ export const addWorkerTransaction = asyncHandler(async (req, res) => {
     date,
     notes,
     payment_mode,
+    add_to_rojmed,
   });
 
   // Also fetch fresh summary
@@ -150,7 +151,7 @@ export const addWorkerTransaction = asyncHandler(async (req, res) => {
  */
 export const updateWorkerTransaction = asyncHandler(async (req, res) => {
   const { id, transactionId } = req.params;
-  const { type, amount, date, notes, payment_mode } = req.body;
+  const { type, amount, date, notes, payment_mode, add_to_rojmed } = req.body;
 
   if (!type || !['salary', 'upad', 'payment'].includes(type)) {
     throw ApiError.badRequest('Valid transaction type (salary, upad, payment) is required');
@@ -167,6 +168,7 @@ export const updateWorkerTransaction = asyncHandler(async (req, res) => {
     date,
     notes,
     payment_mode,
+    add_to_rojmed,
   });
 
   if (!updatedTx) {

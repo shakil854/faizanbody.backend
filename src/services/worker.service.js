@@ -1,4 +1,5 @@
-import db from '../config/db.js';
+import db, { pool } from '../config/db.js';
+import { rojmedService } from './rojmed.service.js';
 
 /**
  * In-memory fallback dataset for when MySQL is offline
@@ -30,7 +31,28 @@ function formatDate(val) {
   return val;
 }
 
+function formatWorkerRojmedMapping(type, workerName, notes) {
+  const cleanNotes = notes ? String(notes).trim() : '';
+  if (type === 'salary') {
+    const label = 'રોકડા જમા';
+    return {
+      entry_type: 'aavak',
+      sub_type: 'jama',
+      particulars: cleanNotes ? `${workerName} - ${cleanNotes}` : `${workerName} - ${label}`,
+    };
+  }
+  const label = type === 'payment' ? 'હિસાબ પેટે' : 'ઉપાડ';
+  return {
+    entry_type: 'javak',
+    sub_type: type === 'payment' ? 'payment' : 'upad',
+    particulars: cleanNotes ? `${workerName} - ${label} (${cleanNotes})` : `${workerName} - ${label}`,
+  };
+}
+
 class WorkerService {
+  invalidateCache() {
+    invalidateCache();
+  }
   async getAllWorkers({ search = '', status = 'all', startDate = '', endDate = '' } = {}) {
     const isDefaultQuery = !search && status === 'all' && !startDate && !endDate;
 
@@ -335,12 +357,18 @@ class WorkerService {
     invalidateCache();
 
     try {
+      await db.query(
+        "UPDATE rojmed_entries SET linked_tx_id = NULL WHERE source_type = 'worker' AND source_id = ?",
+        [numId]
+      ).catch(() => {});
+      await db.query('DELETE FROM worker_transactions WHERE worker_id = ?', [numId]).catch(() => {});
       const [result] = await db.query('DELETE FROM workers WHERE id = ?', [numId]);
       return result.affectedRows > 0;
     } catch (error) {
       console.warn('⚠️ [WorkerService DB Warning - Using Memory Store]:', error.message);
       const initialLen = memoryWorkers.length;
       memoryWorkers = memoryWorkers.filter((item) => item.id !== numId);
+      memoryTransactions = memoryTransactions.filter((t) => t.worker_id !== numId);
       return memoryWorkers.length < initialLen;
     }
   }
@@ -352,7 +380,7 @@ class WorkerService {
     const numId = Number(workerId);
     try {
       const [rows] = await db.query(
-        'SELECT id, worker_id, type, amount, date, notes, payment_mode, created_at FROM worker_transactions WHERE worker_id = ? ORDER BY date DESC, id DESC',
+        'SELECT id, worker_id, type, amount, date, notes, payment_mode, rojmed_entry_id, created_at FROM worker_transactions WHERE worker_id = ? ORDER BY date DESC, id DESC',
         [numId]
       );
       const transactions = rows.map((t) => ({
@@ -363,6 +391,7 @@ class WorkerService {
         date: formatDate(t.date),
         notes: t.notes || '',
         payment_mode: t.payment_mode || 'Cash',
+        rojmed_entry_id: t.rojmed_entry_id ? Number(t.rojmed_entry_id) : null,
         created_at: t.created_at,
       }));
 
@@ -405,20 +434,73 @@ class WorkerService {
 
   /**
    * Add a new Khata transaction for worker (upad, payment, or salary)
+   * Optionally syncs with Daily Rojmed when add_to_rojmed is true and payment_mode is Cash.
    */
-  async addWorkerTransaction(workerId, { type, amount, date, notes = '', payment_mode = 'Cash' }) {
+  async addWorkerTransaction(
+    workerId,
+    {
+      type,
+      amount,
+      date,
+      notes = '',
+      payment_mode = 'Cash',
+      add_to_rojmed = false,
+      rojmed_entry_id = null,
+      _skipRojmedSync = false,
+    }
+  ) {
     const numWorkerId = Number(workerId);
     const numAmount = Number(amount);
-    const formattedDate = formatDate(date) || new Date().toISOString().split('T')[0];
+    const formattedDate = formatDate(date) || formatDate(new Date());
     const sanitizedNotes = notes ? String(notes).trim() : '';
     const sanitizedMode = payment_mode ? String(payment_mode).trim() : 'Cash';
+    const shouldSyncRojmed = Boolean(add_to_rojmed) && sanitizedMode === 'Cash' && !_skipRojmedSync;
 
     invalidateCache();
 
+    let conn = null;
     try {
+      if (shouldSyncRojmed) {
+        conn = await pool.getConnection();
+        await conn.beginTransaction();
+
+        const [wRows] = await conn.query('SELECT name FROM workers WHERE id = ? LIMIT 1', [numWorkerId]);
+        const workerName = wRows?.[0]?.name || `Worker #${numWorkerId}`;
+
+        const [txResult] = await conn.query(
+          'INSERT INTO worker_transactions (worker_id, type, amount, date, notes, payment_mode) VALUES (?, ?, ?, ?, ?, ?)',
+          [numWorkerId, type, numAmount, formattedDate, sanitizedNotes, sanitizedMode]
+        );
+        const txId = txResult.insertId;
+
+        const map = formatWorkerRojmedMapping(type, workerName, sanitizedNotes);
+        const [rRes] = await conn.query(
+          `INSERT INTO rojmed_entries
+            (date, entry_type, amount, particulars, source_type, source_id, sub_type, linked_tx_id, payment_mode, notes)
+           VALUES (?, ?, ?, ?, 'worker', ?, ?, ?, 'Cash', ?)`,
+          [formattedDate, map.entry_type, numAmount, map.particulars, numWorkerId, map.sub_type, txId, sanitizedNotes || null]
+        );
+        const linkedRojmedId = rRes.insertId;
+
+        await conn.query('UPDATE worker_transactions SET rojmed_entry_id = ? WHERE id = ?', [linkedRojmedId, txId]);
+        await conn.commit();
+
+        return {
+          id: txId,
+          worker_id: numWorkerId,
+          type,
+          amount: numAmount,
+          date: formattedDate,
+          notes: sanitizedNotes,
+          payment_mode: sanitizedMode,
+          rojmed_entry_id: linkedRojmedId,
+          created_at: new Date().toISOString(),
+        };
+      }
+
       const [result] = await db.query(
-        'INSERT INTO worker_transactions (worker_id, type, amount, date, notes, payment_mode) VALUES (?, ?, ?, ?, ?, ?)',
-        [numWorkerId, type, numAmount, formattedDate, sanitizedNotes, sanitizedMode]
+        'INSERT INTO worker_transactions (worker_id, type, amount, date, notes, payment_mode, rojmed_entry_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [numWorkerId, type, numAmount, formattedDate, sanitizedNotes, sanitizedMode, rojmed_entry_id]
       );
 
       return {
@@ -429,87 +511,242 @@ class WorkerService {
         date: formattedDate,
         notes: sanitizedNotes,
         payment_mode: sanitizedMode,
+        rojmed_entry_id: rojmed_entry_id ? Number(rojmed_entry_id) : null,
         created_at: new Date().toISOString(),
       };
     } catch (error) {
+      if (conn) await conn.rollback().catch(() => {});
       console.warn('⚠️ [WorkerService DB Warning - Using Memory Store for Transaction Insert]:', error.message);
+      const txId = nextTxId++;
+      let finalRojmedId = rojmed_entry_id ? Number(rojmed_entry_id) : null;
+
+      if (shouldSyncRojmed) {
+        const w = memoryWorkers.find((item) => item.id === numWorkerId);
+        const workerName = w?.name || `Worker #${numWorkerId}`;
+        const map = formatWorkerRojmedMapping(type, workerName, sanitizedNotes);
+        finalRojmedId = rojmedService.syncMemoryFromLinkedTx({
+          action: 'create',
+          sourceType: 'worker',
+          sourceId: numWorkerId,
+          linkedTxId: txId,
+          entryType: map.entry_type,
+          subType: map.sub_type,
+          amount: numAmount,
+          date: formattedDate,
+          particulars: map.particulars,
+          notes: sanitizedNotes,
+          workerName,
+        });
+      }
+
       const newTx = {
-        id: nextTxId++,
+        id: txId,
         worker_id: numWorkerId,
         type,
         amount: numAmount,
         date: formattedDate,
         notes: sanitizedNotes,
         payment_mode: sanitizedMode,
+        rojmed_entry_id: finalRojmedId,
         created_at: new Date().toISOString(),
       };
       memoryTransactions.push(newTx);
       return newTx;
+    } finally {
+      if (conn) conn.release();
     }
   }
 
   /**
-   * Update an existing Khata transaction
+   * Update an existing Khata transaction (and sync linked Rojmed entry if applicable)
    */
-  async updateWorkerTransaction(transactionId, { type, amount, date, notes = '', payment_mode = 'Cash' }) {
+  async updateWorkerTransaction(
+    transactionId,
+    { worker_id, type, amount, date, notes = '', payment_mode = 'Cash', add_to_rojmed, _skipRojmedSync = false }
+  ) {
     const numId = Number(transactionId);
     const numAmount = Number(amount);
-    const formattedDate = formatDate(date) || new Date().toISOString().split('T')[0];
+    const formattedDate = formatDate(date) || formatDate(new Date());
     const sanitizedNotes = notes !== undefined ? String(notes).trim() : '';
     const sanitizedMode = payment_mode ? String(payment_mode).trim() : 'Cash';
 
     invalidateCache();
 
+    let conn = null;
     try {
-      const [result] = await db.query(
-        'UPDATE worker_transactions SET type = ?, amount = ?, date = ?, notes = ?, payment_mode = ? WHERE id = ?',
-        [type, numAmount, formattedDate, sanitizedNotes, sanitizedMode, numId]
-      );
+      conn = await pool.getConnection();
+      await conn.beginTransaction();
 
-      if (result.affectedRows === 0) {
+      const [existingRows] = await conn.query(
+        `SELECT wt.*, w.name AS worker_name
+         FROM worker_transactions wt
+         LEFT JOIN workers w ON wt.worker_id = w.id
+         WHERE wt.id = ? LIMIT 1`,
+        [numId]
+      );
+      if (!existingRows || existingRows.length === 0) {
+        await conn.rollback();
         return null;
       }
+      const existing = existingRows[0];
+      const targetWorkerId = worker_id ? Number(worker_id) : Number(existing.worker_id);
 
-      const [rows] = await db.query('SELECT * FROM worker_transactions WHERE id = ?', [numId]);
-      return rows[0] || {
-        id: numId,
-        type,
-        amount: numAmount,
-        date: formattedDate,
-        notes: sanitizedNotes,
-        payment_mode: sanitizedMode,
-      };
+      let workerName = existing.worker_name || `Worker #${targetWorkerId}`;
+      if (worker_id && Number(worker_id) !== Number(existing.worker_id)) {
+        const [wRows] = await conn.query('SELECT name FROM workers WHERE id = ? LIMIT 1', [targetWorkerId]);
+        workerName = wRows?.[0]?.name || workerName;
+      }
+
+      let finalRojmedId = existing.rojmed_entry_id ? Number(existing.rojmed_entry_id) : null;
+
+      await conn.query(
+        'UPDATE worker_transactions SET worker_id = ?, type = ?, amount = ?, date = ?, notes = ?, payment_mode = ? WHERE id = ?',
+        [targetWorkerId, type, numAmount, formattedDate, sanitizedNotes, sanitizedMode, numId]
+      );
+
+      if (!_skipRojmedSync) {
+        const wantRojmed = add_to_rojmed !== undefined ? Boolean(add_to_rojmed) : Boolean(finalRojmedId);
+        const canStayInRojmed = wantRojmed && sanitizedMode === 'Cash';
+
+        if (finalRojmedId && !canStayInRojmed) {
+          await conn.query('DELETE FROM rojmed_entries WHERE id = ?', [finalRojmedId]);
+          await conn.query('UPDATE worker_transactions SET rojmed_entry_id = NULL WHERE id = ?', [numId]);
+          finalRojmedId = null;
+        } else if (finalRojmedId && canStayInRojmed) {
+          const map = formatWorkerRojmedMapping(type, workerName, sanitizedNotes);
+          await conn.query(
+            `UPDATE rojmed_entries
+             SET date = ?, entry_type = ?, amount = ?, particulars = ?, source_id = ?, sub_type = ?, notes = ?
+             WHERE id = ?`,
+            [formattedDate, map.entry_type, numAmount, map.particulars, targetWorkerId, map.sub_type, sanitizedNotes || null, finalRojmedId]
+          );
+        } else if (!finalRojmedId && canStayInRojmed) {
+          const map = formatWorkerRojmedMapping(type, workerName, sanitizedNotes);
+          const [rRes] = await conn.query(
+            `INSERT INTO rojmed_entries
+              (date, entry_type, amount, particulars, source_type, source_id, sub_type, linked_tx_id, payment_mode, notes)
+             VALUES (?, ?, ?, ?, 'worker', ?, ?, ?, 'Cash', ?)`,
+            [formattedDate, map.entry_type, numAmount, map.particulars, targetWorkerId, map.sub_type, numId, sanitizedNotes || null]
+          );
+          finalRojmedId = rRes.insertId;
+          await conn.query('UPDATE worker_transactions SET rojmed_entry_id = ? WHERE id = ?', [finalRojmedId, numId]);
+        }
+      }
+
+      await conn.commit();
+      const [rows] = await db.query(
+        'SELECT id, worker_id, type, amount, date, notes, payment_mode, rojmed_entry_id, created_at FROM worker_transactions WHERE id = ?',
+        [numId]
+      );
+      const row = rows[0];
+      return row
+        ? {
+            id: row.id,
+            worker_id: row.worker_id,
+            type: row.type,
+            amount: Number(row.amount) || 0,
+            date: formatDate(row.date),
+            notes: row.notes || '',
+            payment_mode: row.payment_mode || 'Cash',
+            rojmed_entry_id: row.rojmed_entry_id ? Number(row.rojmed_entry_id) : null,
+            created_at: row.created_at,
+          }
+        : null;
     } catch (error) {
+      if (conn) await conn.rollback().catch(() => {});
       console.warn('⚠️ [WorkerService DB Warning - Using Memory Store for Transaction Update]:', error.message);
       const idx = memoryTransactions.findIndex((t) => t.id === numId);
       if (idx === -1) return null;
+
+      const existing = memoryTransactions[idx];
+      const targetWorkerId = worker_id ? Number(worker_id) : existing.worker_id;
+      let finalRojmedId = existing.rojmed_entry_id || null;
+
+      if (!_skipRojmedSync) {
+        const w = memoryWorkers.find((item) => item.id === targetWorkerId);
+        const workerName = w?.name || `Worker #${targetWorkerId}`;
+        const wantRojmed = add_to_rojmed !== undefined ? Boolean(add_to_rojmed) : Boolean(finalRojmedId);
+        const canStayInRojmed = wantRojmed && sanitizedMode === 'Cash';
+
+        if (finalRojmedId && !canStayInRojmed) {
+          rojmedService.syncMemoryFromLinkedTx({ action: 'delete', rojmedEntryId: finalRojmedId });
+          finalRojmedId = null;
+        } else if (canStayInRojmed) {
+          const map = formatWorkerRojmedMapping(type, workerName, sanitizedNotes);
+          finalRojmedId = rojmedService.syncMemoryFromLinkedTx({
+            action: finalRojmedId ? 'update' : 'create',
+            rojmedEntryId: finalRojmedId,
+            sourceType: 'worker',
+            sourceId: targetWorkerId,
+            linkedTxId: numId,
+            entryType: map.entry_type,
+            subType: map.sub_type,
+            amount: numAmount,
+            date: formattedDate,
+            particulars: map.particulars,
+            notes: sanitizedNotes,
+            workerName,
+          });
+        }
+      }
+
       memoryTransactions[idx] = {
-        ...memoryTransactions[idx],
+        ...existing,
+        worker_id: targetWorkerId,
         type,
         amount: numAmount,
         date: formattedDate,
         notes: sanitizedNotes,
         payment_mode: sanitizedMode,
+        rojmed_entry_id: finalRojmedId,
       };
       return memoryTransactions[idx];
+    } finally {
+      if (conn) conn.release();
     }
   }
 
   /**
-   * Delete a transaction record
+   * Delete a transaction record (and its linked Rojmed entry if any)
    */
-  async deleteWorkerTransaction(transactionId) {
+  async deleteWorkerTransaction(transactionId, { _skipRojmedSync = false } = {}) {
     const numId = Number(transactionId);
     invalidateCache();
 
+    let conn = null;
     try {
-      const [result] = await db.query('DELETE FROM worker_transactions WHERE id = ?', [numId]);
+      conn = await pool.getConnection();
+      await conn.beginTransaction();
+
+      const [existingRows] = await conn.query(
+        'SELECT rojmed_entry_id FROM worker_transactions WHERE id = ? LIMIT 1',
+        [numId]
+      );
+      if (!existingRows || existingRows.length === 0) {
+        await conn.rollback();
+        return false;
+      }
+      const linkedRojmedId = existingRows[0].rojmed_entry_id;
+
+      const [result] = await conn.query('DELETE FROM worker_transactions WHERE id = ?', [numId]);
+      if (!_skipRojmedSync && linkedRojmedId) {
+        await conn.query('DELETE FROM rojmed_entries WHERE id = ?', [linkedRojmedId]);
+      }
+
+      await conn.commit();
       return result.affectedRows > 0;
     } catch (error) {
+      if (conn) await conn.rollback().catch(() => {});
       console.warn('⚠️ [WorkerService DB Warning - Using Memory Store for Transaction Delete]:', error.message);
-      const initLen = memoryTransactions.length;
+      const existing = memoryTransactions.find((t) => t.id === numId);
+      if (!existing) return false;
+      if (!_skipRojmedSync && existing.rojmed_entry_id) {
+        rojmedService.syncMemoryFromLinkedTx({ action: 'delete', rojmedEntryId: existing.rojmed_entry_id });
+      }
       memoryTransactions = memoryTransactions.filter((t) => t.id !== numId);
-      return memoryTransactions.length < initLen;
+      return true;
+    } finally {
+      if (conn) conn.release();
     }
   }
 

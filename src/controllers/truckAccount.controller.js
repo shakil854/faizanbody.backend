@@ -61,7 +61,7 @@ export const deleteTruckAccount = asyncHandler(async (req, res) => {
 
 export const addTruckAccountEntry = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { type, amount, date, particulars, payment_mode } = req.body;
+  const { type, amount, date, particulars, payment_mode, add_to_rojmed } = req.body;
 
   if (amount === undefined || amount === null || Number(amount) <= 0) {
     throw ApiError.badRequest('Valid amount is required (માન્ય રકમ જરૂરી છે)');
@@ -73,6 +73,7 @@ export const addTruckAccountEntry = asyncHandler(async (req, res) => {
     date,
     particulars,
     payment_mode,
+    add_to_rojmed,
   });
 
   const updatedAccount = await truckAccountService.getAccountById(id);
@@ -81,7 +82,7 @@ export const addTruckAccountEntry = asyncHandler(async (req, res) => {
 
 export const updateTruckAccountEntry = asyncHandler(async (req, res) => {
   const { id, entryId } = req.params;
-  const { type, amount, date, particulars, payment_mode } = req.body;
+  const { type, amount, date, particulars, payment_mode, add_to_rojmed } = req.body;
 
   if (amount === undefined || amount === null || Number(amount) <= 0) {
     throw ApiError.badRequest('Valid amount is required (માન્ય રકમ જરૂરી છે)');
@@ -93,6 +94,7 @@ export const updateTruckAccountEntry = asyncHandler(async (req, res) => {
     date,
     particulars,
     payment_mode,
+    add_to_rojmed,
   });
 
   const updatedAccount = await truckAccountService.getAccountById(id);
