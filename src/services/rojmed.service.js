@@ -327,7 +327,7 @@ class RojmedService {
         [rangeStart, rangeEnd]
       );
 
-      return this._buildSummaryPayload(rangeStart, rangeEnd, startOpening.opening_silak, entryRows, openingRows);
+      return this._buildSummaryPayload(rangeStart, rangeEnd, startOpening, entryRows, openingRows);
     } catch (err) {
       console.warn('⚠️ [RojmedService getPeriodSummary DB Fallback]:', err.message);
       const startOpening = this._computeOpeningSilakMemory(rangeStart);
@@ -347,14 +347,15 @@ class RojmedService {
       return this._buildSummaryPayload(
         rangeStart,
         rangeEnd,
-        startOpening.opening_silak,
+        startOpening,
         Array.from(grouped.values()),
         openingRows
       );
     }
   }
 
-  _buildSummaryPayload(rangeStart, rangeEnd, initialOpening, entryRows, openingRows) {
+  _buildSummaryPayload(rangeStart, rangeEnd, startOpeningInfo, entryRows, openingRows) {
+    const initialOpening = Number(startOpeningInfo?.opening_silak) || 0;
     const entryMap = new Map();
     (entryRows || []).forEach((r) => {
       const d = formatLocalDate(r.date);
@@ -377,7 +378,7 @@ class RojmedService {
       a.localeCompare(b)
     );
 
-    let runningBalance = Number(initialOpening) || 0;
+    let runningBalance = initialOpening;
     let periodTotalAavak = 0;
     let periodTotalJavak = 0;
     const days = [];
@@ -403,10 +404,18 @@ class RojmedService {
       runningBalance = dayClosing;
     }
 
+    const effectivePeriodOpening =
+      !startOpeningInfo?.anchor_date &&
+      initialOpening === 0 &&
+      days.length > 0 &&
+      days[0].is_manual_opening
+        ? days[0].opening_silak
+        : initialOpening;
+
     return {
       startDate: rangeStart,
       endDate: rangeEnd,
-      opening_silak: Number(initialOpening) || 0,
+      opening_silak: effectivePeriodOpening,
       total_aavak: periodTotalAavak,
       total_javak: periodTotalJavak,
       closing_silak: runningBalance,
