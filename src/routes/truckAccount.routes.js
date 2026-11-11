@@ -9,26 +9,26 @@ import {
   updateTruckAccountEntry,
   deleteTruckAccountEntry,
 } from '../controllers/truckAccount.controller.js';
-import { verifyToken, requireAnyPermission } from '../middlewares/auth.middleware.js';
+import { verifyToken, requirePermission, requireAnyPermission } from '../middlewares/auth.middleware.js';
 
 const router = Router();
 
-// Truck Accounts CRUD (Matches Workers & Other modules permission flow)
+// Truck Accounts CRUD (Strictly gated by truck_accounts:* permissions)
 router.route('/truck-accounts')
-  .get(verifyToken, requireAnyPermission('truck_accounts:view', 'workers:view'), getTruckAccounts)
-  .post(verifyToken, requireAnyPermission('truck_accounts:create', 'workers:create'), createTruckAccount);
+  .get(verifyToken, requirePermission('truck_accounts:view'), getTruckAccounts)
+  .post(verifyToken, requirePermission('truck_accounts:create'), createTruckAccount);
 
 router.route('/truck-accounts/:id')
-  .get(verifyToken, requireAnyPermission('truck_accounts:view', 'workers:view'), getTruckAccountById)
-  .put(verifyToken, requireAnyPermission('truck_accounts:edit', 'workers:edit'), updateTruckAccount)
-  .delete(verifyToken, requireAnyPermission('truck_accounts:delete', 'workers:delete'), deleteTruckAccount);
+  .get(verifyToken, requireAnyPermission('truck_accounts:khata', 'truck_accounts:print'), getTruckAccountById)
+  .put(verifyToken, requirePermission('truck_accounts:edit'), updateTruckAccount)
+  .delete(verifyToken, requirePermission('truck_accounts:delete'), deleteTruckAccount);
 
-// Truck Account Entries (Jama / Udhar)
+// Truck Account Entries (Jama / Udhar - Strictly gated by truck_accounts:khata)
 router.route('/truck-accounts/:id/entries')
-  .post(verifyToken, requireAnyPermission('truck_accounts:khata', 'workers:khata'), addTruckAccountEntry);
+  .post(verifyToken, requirePermission('truck_accounts:khata'), addTruckAccountEntry);
 
 router.route('/truck-accounts/:id/entries/:entryId')
-  .put(verifyToken, requireAnyPermission('truck_accounts:khata', 'workers:khata'), updateTruckAccountEntry)
-  .delete(verifyToken, requireAnyPermission('truck_accounts:khata', 'workers:khata'), deleteTruckAccountEntry);
+  .put(verifyToken, requirePermission('truck_accounts:khata'), updateTruckAccountEntry)
+  .delete(verifyToken, requirePermission('truck_accounts:khata'), deleteTruckAccountEntry);
 
 export default router;
