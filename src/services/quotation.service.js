@@ -252,7 +252,7 @@ class QuotationService {
 
       const [result] = await db.query(sql, params);
       if (bodyCalc && typeof bodyCalc === 'object') {
-        this.persistBodyDefaultsFromCalc(bodyCalc).catch(() => {});
+        this.persistBodyDefaultsFromCalc(bodyCalc, extraPercent).catch(() => {});
       }
       return this.getQuotationById(result.insertId);
     } catch (error) {
@@ -280,7 +280,7 @@ class QuotationService {
         updated_at: new Date().toISOString(),
       };
       if (bodyCalc && typeof bodyCalc === 'object') {
-        this.persistBodyDefaultsFromCalc(bodyCalc).catch(() => {});
+        this.persistBodyDefaultsFromCalc(bodyCalc, extraPercent).catch(() => {});
       }
       memoryQuotations.unshift(newQuotation);
       return formatQuotationRow(newQuotation);
@@ -396,7 +396,7 @@ class QuotationService {
 
       await db.query(sql, params);
       if (bodyCalc && typeof bodyCalc === 'object') {
-        this.persistBodyDefaultsFromCalc(bodyCalc).catch(() => {});
+        this.persistBodyDefaultsFromCalc(bodyCalc, extraPercent).catch(() => {});
       }
       return this.getQuotationById(numId);
     } catch (error) {
@@ -553,6 +553,9 @@ class QuotationService {
           ? String(data.mpnfo.amount)
           : (data.monofo?.amount !== undefined && data.monofo?.amount !== null ? String(data.monofo.amount) : ''),
       },
+      extra_percent: data.extra_percent !== undefined && data.extra_percent !== null
+        ? String(data.extra_percent)
+        : (memoryBodyDefaults?.extra_percent !== undefined ? String(memoryBodyDefaults.extra_percent) : ''),
     };
 
     try {
@@ -568,7 +571,7 @@ class QuotationService {
     return cleaned;
   }
 
-  async persistBodyDefaultsFromCalc(bodyCalc) {
+  async persistBodyDefaultsFromCalc(bodyCalc, extraPercent = null) {
     if (!bodyCalc || typeof bodyCalc !== 'object') return;
     try {
       const existing = (await this.getBodyDefaults()) || {};
@@ -668,6 +671,9 @@ class QuotationService {
               ? String(bodyCalc.monofo.amount)
               : (existing.mpnfo?.amount || existing.monofo?.amount || '10000')),
         },
+        extra_percent: extraPercent !== undefined && extraPercent !== null
+          ? String(extraPercent)
+          : (existing.extra_percent !== undefined ? String(existing.extra_percent) : ''),
       };
 
       await this.saveBodyDefaults(bodyDefaults);
