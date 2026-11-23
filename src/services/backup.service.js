@@ -7,19 +7,15 @@ import { sendBackupEmail } from './email.service.js';
 
 const BACKUPS_DIR = path.join(process.cwd(), 'backups');
 
-// Ensure backups directory exists safely
-if (!fs.existsSync(BACKUPS_DIR)) {
-  fs.mkdirSync(BACKUPS_DIR, { recursive: true });
-}
-
 /**
  * ====================================================================
  * 🛡️ Database Backup & Restore Service (Zero Data Loss Guaranteed)
  * ====================================================================
  * Features:
- * - Single-file complete database backup (.json and .sql) containing all tables.
+ * - Direct-to-Account backup delivery (Google Drive / Webhook / Email).
+ * - Zero local disk clutter: No local backup files created on server.
+ * - In-memory JSON/SQL streaming for manual downloads.
  * - Single-file complete database restore with safe transaction & upsert.
- * - 30-Day rolling automated daily backups with automatic cleanup of older files.
  * - Live database statistics and status checks.
  * ====================================================================
  */
@@ -348,65 +344,38 @@ export function listServerBackups() {
 }
 
 /**
- * Creates today's daily backup file and cleans up backups older than 30 days
+ * Runs automated daily backup - delivers DIRECTLY to user's connected account ONLY.
+ * NEVER writes or stores backup files on the backend server disk.
  */
 export async function runDailyAutoBackup() {
   try {
     const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
     const jsonFilename = `faizanbody_backup_${todayStr}.json`;
-    const jsonPath = path.join(BACKUPS_DIR, jsonFilename);
 
-    console.log(`\n⏳ [Auto-Backup] Running daily rolling backup for ${todayStr}...`);
+    console.log(`\n⏳ [Auto-Backup] Checking daily automated backup for ${todayStr}...`);
 
-    // 1. Generate full backup data
+    const gdriveSettings = await getGoogleDriveSettings();
+    if (!gdriveSettings || !gdriveSettings.connected || !gdriveSettings.autoDailyEnabled) {
+      console.log(`ℹ️ [Auto-Backup] No Google Drive/Email account connected. Skipping (Zero local server files stored).`);
+      return {
+        success: true,
+        message: 'No external account connected. Backups are delivered strictly to user-connected accounts without saving files on backend server.',
+      };
+    }
+
+    // 1. Generate full backup data in memory
     const backupData = await createFullBackupData();
-    fs.writeFileSync(jsonPath, JSON.stringify(backupData, null, 2), 'utf8');
 
-    // 2. Also generate SQL dump for maximum versatility
-    const sqlFilename = `faizanbody_backup_${todayStr}.sql`;
-    const sqlPath = path.join(BACKUPS_DIR, sqlFilename);
-    const sqlDump = await generateSqlDump();
-    fs.writeFileSync(sqlPath, sqlDump, 'utf8');
-
-    console.log(`✅ [Auto-Backup] Daily backup saved: ${jsonFilename} (${(fs.statSync(jsonPath).size / 1024).toFixed(1)} KB)`);
-
-    // 3. Enforce 30-Day Retention Policy (Auto-Delete older than 30 days)
-    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-    const allFiles = fs.readdirSync(BACKUPS_DIR);
-    let deletedCount = 0;
-
-    for (const f of allFiles) {
-      if (!f.startsWith('faizanbody_backup_')) continue;
-      const fPath = path.join(BACKUPS_DIR, f);
-      const stat = fs.statSync(fPath);
-
-      if (stat.mtimeMs < thirtyDaysAgo) {
-        fs.unlinkSync(fPath);
-        console.log(`🗑️ [Auto-Backup Cleanup] Deleted backup older than 30 days: ${f}`);
-        deletedCount++;
-      }
-    }
-
-    if (deletedCount > 0) {
-      console.log(`🧹 [Auto-Backup] Cleaned up ${deletedCount} expired backup files.`);
-    }
-
-    // 4. Automated Daily Google Drive Backup (Account added once -> auto daily backup)
-    try {
-      const gdriveSettings = await getGoogleDriveSettings();
-      if (gdriveSettings && gdriveSettings.connected && gdriveSettings.autoDailyEnabled) {
-        console.log(`☁️ [Auto-Backup] Uploading daily backup to connected Google Drive account (${gdriveSettings.accountEmail || 'Webhook'})...`);
-        await uploadBackupToGoogleDrive(backupData, gdriveSettings);
-        console.log(`✅ [Auto-Backup] Google Drive daily backup completed successfully.`);
-      }
-    } catch (gErr) {
-      console.warn(`⚠️ [Auto-Backup Google Drive Notice]:`, gErr.message);
-    }
+    // 2. Deliver directly to connected Google Drive account / Email
+    console.log(`☁️ [Auto-Backup] Uploading daily backup to connected account (${gdriveSettings.accountEmail || 'Webhook'})...`);
+    await uploadBackupToGoogleDrive(backupData, gdriveSettings);
+    console.log(`✅ [Auto-Backup] Google Drive daily backup completed and delivered directly to account.`);
 
     return {
       success: true,
       filename: jsonFilename,
       date: todayStr,
+      deliveredTo: gdriveSettings.accountEmail || 'Google Drive',
       totalRecords: backupData.summary.totalRecords,
     };
   } catch (error) {
@@ -567,35 +536,37 @@ export async function restoreFromServerBackupFile(filename) {
 }
 
 /**
- * Initializes automatic background scheduled backups (Runs daily at 02:00 AM)
+ * Initializes automatic background scheduled backups.
+ * Delivers directly to the user's connected account without storing local files on backend server.
  */
 export function initScheduledBackups() {
-  console.log('🛡️ [Scheduled Backups] Initialized 30-day rolling automated backup service.');
+  console.log('🛡️ [Scheduled Backups] Initialized Direct-to-Account auto-backup service (Zero server disk files).');
 
-  // Check if today's backup already exists; if not, create one after 10 seconds of startup
-  setTimeout(async () => {
+  const checkAndRunAccountBackup = async () => {
     try {
-      const todayStr = new Date().toISOString().slice(0, 10);
-      const todayFile = path.join(BACKUPS_DIR, `faizanbody_backup_${todayStr}.json`);
-      if (!fs.existsSync(todayFile)) {
-        await runDailyAutoBackup();
+      const settings = await getGoogleDriveSettings();
+      if (!settings || !settings.connected || !settings.autoDailyEnabled) {
+        return;
       }
-    } catch (e) {
-      console.warn('[Auto-Backup Startup Notice]:', e.message);
-    }
-  }, 10000);
 
-  // Check every 4 hours if a daily backup is needed
-  setInterval(async () => {
-    try {
       const todayStr = new Date().toISOString().slice(0, 10);
-      const todayFile = path.join(BACKUPS_DIR, `faizanbody_backup_${todayStr}.json`);
-      if (!fs.existsSync(todayFile)) {
-        await runDailyAutoBackup();
+      const lastBackupDate = settings.lastBackupAt ? new Date(settings.lastBackupAt).toISOString().slice(0, 10) : '';
+
+      // If already successfully backed up to account today, no need to rerun
+      if (lastBackupDate === todayStr && settings.lastBackupStatus === 'success') {
+        return;
       }
+
+      await runDailyAutoBackup();
     } catch (e) {
-      console.warn('[Auto-Backup Interval Notice]:', e.message);
+      console.warn('[Auto-Backup Check Notice]:', e.message);
     }
-  }, 4 * 60 * 60 * 1000);
+  };
+
+  // Run initial check after 10 seconds of startup
+  setTimeout(checkAndRunAccountBackup, 10000);
+
+  // Check every 4 hours if a daily backup is needed to the connected account
+  setInterval(checkAndRunAccountBackup, 4 * 60 * 60 * 1000);
 }
 
