@@ -108,3 +108,23 @@ export const deleteTruckAccountEntry = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, { entryId: Number(entryId), account: updatedAccount }, 'Entry deleted successfully');
 });
 
+export const settleTruckAccountCycle = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { notes } = req.body || {};
+  const updatedAccount = await truckAccountService.settleCycle(id, { notes });
+  if (!updatedAccount) {
+    throw ApiError.notFound('Truck account not found');
+  }
+  return ApiResponse.success(res, updatedAccount, 'Truck account cycle settled successfully');
+});
+
+export const reopenTruckAccountCycle = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const updatedAccount = await truckAccountService.reopenCycle(id);
+  if (!updatedAccount) {
+    throw ApiError.notFound('Truck account not found');
+  }
+  return ApiResponse.success(res, updatedAccount, 'Previous cycle reopened successfully');
+});
+
+

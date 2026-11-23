@@ -8,6 +8,8 @@ import {
   addTruckAccountEntry,
   updateTruckAccountEntry,
   deleteTruckAccountEntry,
+  settleTruckAccountCycle,
+  reopenTruckAccountCycle,
 } from '../controllers/truckAccount.controller.js';
 import { verifyToken, requirePermission, requireAnyPermission } from '../middlewares/auth.middleware.js';
 
@@ -30,5 +32,9 @@ router.route('/truck-accounts/:id/entries')
 router.route('/truck-accounts/:id/entries/:entryId')
   .put(verifyToken, requirePermission('truck_accounts:khata'), updateTruckAccountEntry)
   .delete(verifyToken, requirePermission('truck_accounts:khata'), deleteTruckAccountEntry);
+
+// Truck Account Cycles (Settle / Reopen - Gated by truck_accounts:khata)
+router.post('/truck-accounts/:id/settle-cycle', verifyToken, requirePermission('truck_accounts:khata'), settleTruckAccountCycle);
+router.post('/truck-accounts/:id/reopen-cycle', verifyToken, requirePermission('truck_accounts:khata'), reopenTruckAccountCycle);
 
 export default router;
