@@ -64,6 +64,26 @@ export async function downloadBackupJson(req, res) {
 }
 
 /**
+ * GET /api/backup/full-data
+ * Returns complete database snapshot for live report / PDF export
+ */
+export async function getFullBackupSnapshot(req, res) {
+  try {
+    const backupData = await createFullBackupData();
+    return res.json({
+      success: true,
+      data: backupData,
+    });
+  } catch (error) {
+    console.error('Error fetching full backup snapshot:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to fetch backup data',
+    });
+  }
+}
+
+/**
  * GET /api/backup/download-sql
  * Downloads single complete SQL dump
  */

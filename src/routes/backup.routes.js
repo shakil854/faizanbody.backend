@@ -5,6 +5,7 @@ import {
   getStats,
   downloadBackupJson,
   downloadBackupSql,
+  getFullBackupSnapshot,
   listBackups,
   downloadServerBackup,
   restoreFromUploadedFile,
@@ -37,6 +38,7 @@ router.use('/backup', verifyToken, authorizeRoles('admin'));
 router.get('/backup/stats', getStats);
 router.get('/backup/download-json', downloadBackupJson);
 router.get('/backup/download-sql', downloadBackupSql);
+router.get('/backup/full-data', getFullBackupSnapshot);
 router.get('/backup/list', listBackups);
 router.get('/backup/server-file/:filename', downloadServerBackup);
 router.post('/backup/manual-now', triggerManualBackup);
