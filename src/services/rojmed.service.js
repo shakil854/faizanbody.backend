@@ -2,6 +2,7 @@ import db, { pool } from '../config/db.js';
 import { workerService } from './worker.service.js';
 import { truckAccountService } from './truckAccount.service.js';
 import { vyapariService } from './vyapari.service.js';
+import { stockService } from './stock.service.js';
 
 /**
  * In-memory fallback datasets for when MySQL is offline
@@ -682,16 +683,49 @@ class RojmedService {
         await conn.query('UPDATE rojmed_entries SET linked_tx_id = ? WHERE id = ?', [linkedTxId, rojmedId]);
       } else if (config.source_type === 'vyapari_account') {
         const vyapariPart = cleanNotes || cleanParticulars || config.default_label;
+        const cleanBillNo = payload.bill_no ? String(payload.bill_no).trim() : null;
+        const cleanStockId = payload.stock_item_id ? Number(payload.stock_item_id) : null;
+        const cleanStockQty = cleanStockId && Number(payload.stock_qty) > 0 ? Number(payload.stock_qty) : null;
+        let cleanStockName = null;
+        if (cleanStockId && cleanStockQty) {
+          try {
+            const stockItem = await stockService.getItemById(cleanStockId);
+            if (stockItem) cleanStockName = stockItem.name;
+          } catch {
+            // ignore lookup warning
+          }
+        }
         const [txRes] = await conn.query(
-          `INSERT INTO vyapari_account_entries (account_id, type, amount, date, particulars, payment_mode, rojmed_entry_id)
-           VALUES (?, ?, ?, ?, ?, 'Cash', ?)`,
-          [sourceId, config.vyapari_entry_type, numAmount, cleanDate, vyapariPart, rojmedId]
+          `INSERT INTO vyapari_account_entries (account_id, type, amount, date, particulars, bill_no, stock_item_id, stock_item_name, stock_qty, payment_mode, rojmed_entry_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Cash', ?)`,
+          [sourceId, config.vyapari_entry_type, numAmount, cleanDate, vyapariPart, cleanBillNo, cleanStockId, cleanStockName, cleanStockQty, rojmedId]
         );
         linkedTxId = txRes.insertId;
         await conn.query('UPDATE rojmed_entries SET linked_tx_id = ? WHERE id = ?', [linkedTxId, rojmedId]);
+
+        // Keep reference for post-commit Stock IN adjustment
+        payload._resolvedVyapariStock = cleanStockId && cleanStockQty ? {
+          stockId: cleanStockId,
+          stockQty: cleanStockQty,
+          billNo: cleanBillNo,
+          label: sourceLabel || `Vyapari #${sourceId}`,
+          part: vyapariPart,
+        } : null;
       }
 
       await conn.commit();
+      if (payload._resolvedVyapariStock) {
+        const st = payload._resolvedVyapariStock;
+        const refParts = [`Rojmed Vyapari: ${st.label}`];
+        if (st.billNo) refParts.push(`Bill #${st.billNo}`);
+        if (st.part) refParts.push(st.part);
+        await stockService.adjustStock(st.stockId, {
+          type: 'IN',
+          quantity: st.stockQty,
+          date: cleanDate,
+          reference_note: refParts.join(' • '),
+        }).catch((e) => console.warn('⚠️ Rojmed Vyapari stock+ adjust warning:', e.message));
+      }
       const createdEntry = await this._getEntryByIdSQL(db, rojmedId);
       const sheet = await this.getDailySheet(cleanDate);
       return { entry: createdEntry, sheet };
@@ -773,6 +807,9 @@ class RojmedService {
           amount: numAmount,
           date: cleanDate,
           particulars: cleanNotes || cleanParticulars,
+          bill_no: payload.bill_no ? String(payload.bill_no).trim() : null,
+          stock_item_id: payload.stock_item_id ? Number(payload.stock_item_id) : null,
+          stock_qty: payload.stock_qty ? Number(payload.stock_qty) : null,
           payment_mode: 'Cash',
           rojmed_entry_id: rojmedId,
           _skipRojmedSync: true,

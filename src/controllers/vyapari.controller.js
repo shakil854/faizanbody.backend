@@ -61,7 +61,7 @@ export const deleteVyapariAccount = asyncHandler(async (req, res) => {
 
 export const addVyapariAccountEntry = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { type, amount, date, particulars, payment_mode, add_to_rojmed } = req.body;
+  const { type, amount, date, particulars, payment_mode, add_to_rojmed, bill_no, stock_item_id, stock_qty } = req.body;
 
   if (amount === undefined || amount === null || Number(amount) <= 0) {
     throw ApiError.badRequest('Valid amount is required (માન્ય રકમ જરૂરી છે)');
@@ -74,6 +74,9 @@ export const addVyapariAccountEntry = asyncHandler(async (req, res) => {
     particulars,
     payment_mode,
     add_to_rojmed,
+    bill_no,
+    stock_item_id,
+    stock_qty,
   });
 
   const updatedAccount = await vyapariService.getAccountById(id);
@@ -82,7 +85,7 @@ export const addVyapariAccountEntry = asyncHandler(async (req, res) => {
 
 export const updateVyapariAccountEntry = asyncHandler(async (req, res) => {
   const { id, entryId } = req.params;
-  const { type, amount, date, particulars, payment_mode, add_to_rojmed } = req.body;
+  const { type, amount, date, particulars, payment_mode, add_to_rojmed, bill_no } = req.body;
 
   if (amount === undefined || amount === null || Number(amount) <= 0) {
     throw ApiError.badRequest('Valid amount is required (માન્ય રકમ જરૂરી છે)');
@@ -95,6 +98,7 @@ export const updateVyapariAccountEntry = asyncHandler(async (req, res) => {
     particulars,
     payment_mode,
     add_to_rojmed,
+    bill_no,
   });
 
   const updatedAccount = await vyapariService.getAccountById(id);

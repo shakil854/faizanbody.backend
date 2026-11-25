@@ -1,5 +1,6 @@
 import db, { pool } from '../config/db.js';
 import { rojmedService } from './rojmed.service.js';
+import { stockService } from './stock.service.js';
 
 /**
  * In-memory fallback dataset for when MySQL is offline
@@ -150,6 +151,10 @@ class VyapariService {
         amount: Number(e.amount) || 0,
         date: formatDate(e.date),
         particulars: e.particulars || '',
+        bill_no: e.bill_no || null,
+        stock_item_id: e.stock_item_id ? Number(e.stock_item_id) : null,
+        stock_item_name: e.stock_item_name || null,
+        stock_qty: e.stock_qty !== null && e.stock_qty !== undefined ? Number(e.stock_qty) : null,
         payment_mode: e.payment_mode || 'Cash',
         cycle_no: Number(e.cycle_no) || 1,
         is_settled: Boolean(e.is_settled),
@@ -326,6 +331,9 @@ class VyapariService {
       payment_mode,
       add_to_rojmed = false,
       rojmed_entry_id = null,
+      bill_no = null,
+      stock_item_id = null,
+      stock_qty = null,
       _skipRojmedSync = false,
     } = data;
     const cleanType = type === 'udhar' ? 'udhar' : 'jama';
@@ -333,7 +341,20 @@ class VyapariService {
     const cleanDate = formatDate(date) || formatDate(new Date());
     const cleanPart = particulars ? particulars.trim() : (cleanType === 'jama' ? 'રોકડા જમા' : 'માલ ઉધાર / બિલ');
     const cleanMode = payment_mode ? String(payment_mode).trim() : 'Cash';
+    const cleanBillNo = bill_no ? String(bill_no).trim() : null;
+    const cleanStockId = stock_item_id ? Number(stock_item_id) : null;
+    const cleanStockQty = cleanStockId && Number(stock_qty) > 0 ? Number(stock_qty) : null;
+    let cleanStockName = null;
     const shouldSyncRojmed = Boolean(add_to_rojmed) && cleanMode === 'Cash' && !_skipRojmedSync;
+
+    if (cleanStockId && cleanStockQty) {
+      try {
+        const stockItem = await stockService.getItemById(cleanStockId);
+        if (stockItem) cleanStockName = stockItem.name;
+      } catch {
+        // ignore lookup error
+      }
+    }
 
     let conn = null;
     try {
@@ -350,9 +371,9 @@ class VyapariService {
         const currentCycle = Number(accRows?.[0]?.current_cycle) || 1;
 
         const [res] = await conn.query(
-          `INSERT INTO vyapari_account_entries (account_id, type, amount, date, particulars, payment_mode, cycle_no, is_settled)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
-          [numAccId, cleanType, cleanAmt, cleanDate, cleanPart, cleanMode, currentCycle]
+          `INSERT INTO vyapari_account_entries (account_id, type, amount, date, particulars, bill_no, stock_item_id, stock_item_name, stock_qty, payment_mode, cycle_no, is_settled)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+          [numAccId, cleanType, cleanAmt, cleanDate, cleanPart, cleanBillNo, cleanStockId, cleanStockName, cleanStockQty, cleanMode, currentCycle]
         );
         const txId = res.insertId;
 
@@ -368,6 +389,18 @@ class VyapariService {
         await conn.query('UPDATE vyapari_account_entries SET rojmed_entry_id = ? WHERE id = ?', [linkedRojmedId, txId]);
         await conn.commit();
 
+        if (cleanStockId && cleanStockQty) {
+          const refParts = [`Vyapari: ${partyName}`];
+          if (cleanBillNo) refParts.push(`Bill #${cleanBillNo}`);
+          if (cleanPart) refParts.push(cleanPart);
+          await stockService.adjustStock(cleanStockId, {
+            type: 'IN',
+            quantity: cleanStockQty,
+            date: cleanDate,
+            reference_note: refParts.join(' • '),
+          }).catch((e) => console.warn('⚠️ Vyapari stock+ adjust warning:', e.message));
+        }
+
         return {
           id: txId,
           account_id: numAccId,
@@ -375,6 +408,10 @@ class VyapariService {
           amount: cleanAmt,
           date: cleanDate,
           particulars: cleanPart,
+          bill_no: cleanBillNo,
+          stock_item_id: cleanStockId,
+          stock_item_name: cleanStockName,
+          stock_qty: cleanStockQty,
           payment_mode: cleanMode,
           cycle_no: currentCycle,
           is_settled: false,
@@ -383,16 +420,30 @@ class VyapariService {
       }
 
       const [accRows] = await db.query(
-        'SELECT current_cycle FROM vyapari_accounts WHERE id = ? LIMIT 1',
+        'SELECT party_name, current_cycle FROM vyapari_accounts WHERE id = ? LIMIT 1',
         [numAccId]
       );
+      const partyName = accRows?.[0]?.party_name || `Vyapari #${numAccId}`;
       const currentCycle = Number(accRows?.[0]?.current_cycle) || 1;
 
       const [res] = await db.query(
-        `INSERT INTO vyapari_account_entries (account_id, type, amount, date, particulars, payment_mode, cycle_no, is_settled, rojmed_entry_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
-        [numAccId, cleanType, cleanAmt, cleanDate, cleanPart, cleanMode, currentCycle, rojmed_entry_id]
+        `INSERT INTO vyapari_account_entries (account_id, type, amount, date, particulars, bill_no, stock_item_id, stock_item_name, stock_qty, payment_mode, cycle_no, is_settled, rojmed_entry_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+        [numAccId, cleanType, cleanAmt, cleanDate, cleanPart, cleanBillNo, cleanStockId, cleanStockName, cleanStockQty, cleanMode, currentCycle, rojmed_entry_id]
       );
+
+      if (cleanStockId && cleanStockQty) {
+        const refParts = [`Vyapari: ${partyName}`];
+        if (cleanBillNo) refParts.push(`Bill #${cleanBillNo}`);
+        if (cleanPart) refParts.push(cleanPart);
+        await stockService.adjustStock(cleanStockId, {
+          type: 'IN',
+          quantity: cleanStockQty,
+          date: cleanDate,
+          reference_note: refParts.join(' • '),
+        }).catch((e) => console.warn('⚠️ Vyapari stock+ adjust warning:', e.message));
+      }
+
       return {
         id: res.insertId,
         account_id: numAccId,
@@ -400,6 +451,10 @@ class VyapariService {
         amount: cleanAmt,
         date: cleanDate,
         particulars: cleanPart,
+        bill_no: cleanBillNo,
+        stock_item_id: cleanStockId,
+        stock_item_name: cleanStockName,
+        stock_qty: cleanStockQty,
         payment_mode: cleanMode,
         cycle_no: currentCycle,
         is_settled: false,
@@ -434,6 +489,17 @@ class VyapariService {
         });
       }
 
+      if (cleanStockId && cleanStockQty) {
+        const refParts = [`Vyapari: ${partyName}`];
+        if (cleanBillNo) refParts.push(`Bill #${cleanBillNo}`);
+        await stockService.adjustStock(cleanStockId, {
+          type: 'IN',
+          quantity: cleanStockQty,
+          date: cleanDate,
+          reference_note: refParts.join(' • '),
+        }).catch(() => {});
+      }
+
       const newEntry = {
         id: txId,
         account_id: numAccId,
@@ -441,6 +507,10 @@ class VyapariService {
         amount: cleanAmt,
         date: cleanDate,
         particulars: cleanPart,
+        bill_no: cleanBillNo,
+        stock_item_id: cleanStockId,
+        stock_item_name: cleanStockName,
+        stock_qty: cleanStockQty,
         payment_mode: cleanMode,
         cycle_no: currentCycle,
         is_settled: 0,
@@ -460,12 +530,14 @@ class VyapariService {
   async updateEntry(accountId, entryId, data) {
     const numAccId = Number(accountId);
     const numEntryId = Number(entryId);
-    const { type, amount, date, particulars, payment_mode, add_to_rojmed, _skipRojmedSync = false } = data;
+    const { type, amount, date, particulars, payment_mode, add_to_rojmed, bill_no, _skipRojmedSync = false } = data;
     const cleanType = type === 'udhar' ? 'udhar' : 'jama';
     const cleanAmt = Number(amount) || 0;
     const cleanDate = formatDate(date) || formatDate(new Date());
     const cleanPart = particulars ? particulars.trim() : (cleanType === 'jama' ? 'રોકડા જમા' : 'માલ ઉધાર / બિલ');
     const cleanMode = payment_mode ? String(payment_mode).trim() : 'Cash';
+    const hasBillNo = bill_no !== undefined;
+    const cleanBillNo = hasBillNo ? (bill_no ? String(bill_no).trim() : null) : undefined;
 
     let conn = null;
     try {
@@ -488,11 +560,12 @@ class VyapariService {
       const firmName = existing.firm_name || '';
       let finalRojmedId = existing.rojmed_entry_id ? Number(existing.rojmed_entry_id) : null;
 
+      const finalBillNo = hasBillNo ? cleanBillNo : existing.bill_no;
       await conn.query(
         `UPDATE vyapari_account_entries
-           SET type = ?, amount = ?, date = ?, particulars = ?, payment_mode = ?
+           SET type = ?, amount = ?, date = ?, particulars = ?, bill_no = ?, payment_mode = ?
            WHERE id = ? AND account_id = ?`,
-        [cleanType, cleanAmt, cleanDate, cleanPart, cleanMode, numEntryId, numAccId]
+        [cleanType, cleanAmt, cleanDate, cleanPart, finalBillNo, cleanMode, numEntryId, numAccId]
       );
 
       if (!_skipRojmedSync) {
