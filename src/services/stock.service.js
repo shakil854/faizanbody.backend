@@ -19,6 +19,8 @@ let nextItemId = 1;
 let memoryTransactions = [];
 let nextTxId = 1;
 
+let memoryWorkerRatings = new Map(); // worker_id -> { worker_id, rating, note, updated_at }
+
 // Format date helper
 function formatDate(val) {
   if (!val) {
@@ -447,7 +449,20 @@ class StockService {
    * 🔄 STOCK ADJUSTMENT & TRANSACTIONS (Proper Stock Maintenance)
    * ==================================================================== */
 
-  async adjustStock(itemId, { type, quantity, date, reference_note } = {}) {
+  async adjustStock(
+    itemId,
+    {
+      type,
+      quantity,
+      date,
+      reference_note,
+      worker_id = null,
+      worker_name = null,
+      order_id = null,
+      order_no = null,
+      truck_chassis_no = null,
+    } = {}
+  ) {
     const numId = Number(itemId);
     const item = await this.getItemById(numId);
     if (!item) throw new Error('Stock item not found');
@@ -476,6 +491,11 @@ class StockService {
 
     const txDate = formatDate(date);
     const refNote = (reference_note || '').trim();
+    const cleanWorkerId = upperType === 'OUT' && worker_id ? Number(worker_id) : null;
+    const cleanWorkerName = upperType === 'OUT' && worker_name ? String(worker_name).trim() : null;
+    const cleanOrderId = upperType === 'OUT' && order_id ? Number(order_id) : null;
+    const cleanOrderNo = upperType === 'OUT' && order_no ? String(order_no).trim() : null;
+    const cleanTruckNo = upperType === 'OUT' && truck_chassis_no ? String(truck_chassis_no).trim() : null;
 
     try {
       // 1. Update stock item quantity
@@ -483,10 +503,26 @@ class StockService {
 
       // 2. Insert transaction log
       const txSql = `
-        INSERT INTO stock_transactions (item_id, type, quantity, previous_quantity, new_quantity, date, reference_note)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO stock_transactions (
+          item_id, type, quantity, previous_quantity, new_quantity, date, reference_note,
+          worker_id, worker_name, order_id, order_no, truck_chassis_no
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
-      await db.query(txSql, [numId, upperType, adjQty, prevQty, newQty, txDate, refNote]);
+      await db.query(txSql, [
+        numId,
+        upperType,
+        adjQty,
+        prevQty,
+        newQty,
+        txDate,
+        refNote,
+        cleanWorkerId,
+        cleanWorkerName,
+        cleanOrderId,
+        cleanOrderNo,
+        cleanTruckNo,
+      ]);
 
       return await this.getItemById(numId);
     } catch (err) {
@@ -506,6 +542,11 @@ class StockService {
         new_quantity: newQty,
         date: txDate,
         reference_note: refNote,
+        worker_id: cleanWorkerId,
+        worker_name: cleanWorkerName,
+        order_id: cleanOrderId,
+        order_no: cleanOrderNo,
+        truck_chassis_no: cleanTruckNo,
         created_at: new Date().toISOString(),
       });
 
@@ -535,6 +576,11 @@ class StockService {
         new_quantity: Number(r.new_quantity),
         date: formatDate(r.date),
         reference_note: r.reference_note || '',
+        worker_id: r.worker_id || null,
+        worker_name: r.worker_name || '',
+        order_id: r.order_id || null,
+        order_no: r.order_no || '',
+        truck_chassis_no: r.truck_chassis_no || '',
         created_at: r.created_at,
       }));
     } catch (err) {
@@ -551,6 +597,11 @@ class StockService {
             previous_quantity: Number(t.previous_quantity),
             new_quantity: Number(t.new_quantity),
             date: formatDate(t.date),
+            worker_id: t.worker_id || null,
+            worker_name: t.worker_name || '',
+            order_id: t.order_id || null,
+            order_no: t.order_no || '',
+            truck_chassis_no: t.truck_chassis_no || '',
           };
         })
         .sort((a, b) => b.id - a.id);
@@ -580,6 +631,11 @@ class StockService {
         new_quantity: Number(r.new_quantity),
         date: formatDate(r.date),
         reference_note: r.reference_note || '',
+        worker_id: r.worker_id || null,
+        worker_name: r.worker_name || '',
+        order_id: r.order_id || null,
+        order_no: r.order_no || '',
+        truck_chassis_no: r.truck_chassis_no || '',
         created_at: r.created_at,
       }));
     } catch (err) {
@@ -597,10 +653,236 @@ class StockService {
             previous_quantity: Number(t.previous_quantity),
             new_quantity: Number(t.new_quantity),
             date: formatDate(t.date),
+            worker_id: t.worker_id || null,
+            worker_name: t.worker_name || '',
+            order_id: t.order_id || null,
+            order_no: t.order_no || '',
+            truck_chassis_no: t.truck_chassis_no || '',
           };
         })
         .sort((a, b) => b.id - a.id);
     }
+  }
+
+  async setWorkerMaterialRating(workerId, rating, note = '') {
+    const numWorkerId = Number(workerId);
+    const numRating = Math.min(5, Math.max(1, Math.round(Number(rating) || 0)));
+    if (!numWorkerId) throw new Error('Valid worker_id is required');
+    if (!numRating || numRating < 1 || numRating > 5) throw new Error('Rating must be between 1 and 5');
+
+    const cleanNote = (note || '').trim() || null;
+
+    try {
+      await db.query(
+        `INSERT INTO stock_worker_ratings (worker_id, rating, note)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE rating = VALUES(rating), note = VALUES(note)`,
+        [numWorkerId, numRating, cleanNote]
+      );
+      return { worker_id: numWorkerId, rating: numRating, note: cleanNote || '' };
+    } catch (err) {
+      console.warn('⚠️ [StockService Rating DB Warning - Using Memory Store]:', err.message);
+      const entry = {
+        worker_id: numWorkerId,
+        rating: numRating,
+        note: cleanNote || '',
+        updated_at: new Date().toISOString(),
+      };
+      memoryWorkerRatings.set(numWorkerId, entry);
+      return entry;
+    }
+  }
+
+  async getUsageAnalytics({ workerId = null, orderId = null } = {}) {
+    let outRows = [];
+    let ratingMap = new Map();
+
+    try {
+      const conditions = ["t.type = 'OUT'"];
+      const params = [];
+      if (workerId) {
+        conditions.push('t.worker_id = ?');
+        params.push(Number(workerId));
+      }
+      if (orderId) {
+        conditions.push('t.order_id = ?');
+        params.push(Number(orderId));
+      }
+
+      const sql = `
+        SELECT t.*, i.name as item_name, i.category_name, i.unit, i.unit_price
+        FROM stock_transactions t
+        LEFT JOIN stock_items i ON t.item_id = i.id
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY t.date DESC, t.id DESC
+        LIMIT 1000
+      `;
+      const [rows] = await db.query(sql, params);
+      outRows = rows.map((r) => ({
+        id: r.id,
+        item_id: r.item_id,
+        item_name: r.item_name || 'Unknown Item',
+        category_name: r.category_name || '',
+        unit: r.unit || 'Pcs',
+        unit_price: r.unit_price !== null ? Number(r.unit_price) : 0,
+        quantity: Number(r.quantity) || 0,
+        date: formatDate(r.date),
+        reference_note: r.reference_note || '',
+        worker_id: r.worker_id || null,
+        worker_name: r.worker_name || '',
+        order_id: r.order_id || null,
+        order_no: r.order_no || '',
+        truck_chassis_no: r.truck_chassis_no || '',
+      }));
+
+      try {
+        const [rRows] = await db.query('SELECT worker_id, rating, note FROM stock_worker_ratings');
+        rRows.forEach((rr) => {
+          ratingMap.set(Number(rr.worker_id), {
+            rating: Number(rr.rating),
+            note: rr.note || '',
+          });
+        });
+      } catch {
+        // Table may not exist on first boot before initDB; ignore gracefully
+      }
+    } catch (err) {
+      console.warn('⚠️ [StockService Usage DB Warning - Using Memory Store]:', err.message);
+      outRows = memoryTransactions
+        .filter((t) => t.type === 'OUT')
+        .filter((t) => (!workerId || Number(t.worker_id) === Number(workerId)))
+        .filter((t) => (!orderId || Number(t.order_id) === Number(orderId)))
+        .map((t) => {
+          const item = memoryItems.find((i) => i.id === t.item_id);
+          return {
+            id: t.id,
+            item_id: t.item_id,
+            item_name: item ? item.name : 'Unknown Item',
+            category_name: item ? item.category_name : '',
+            unit: item ? item.unit : 'Pcs',
+            unit_price: item && item.unit_price ? Number(item.unit_price) : 0,
+            quantity: Number(t.quantity) || 0,
+            date: formatDate(t.date),
+            reference_note: t.reference_note || '',
+            worker_id: t.worker_id || null,
+            worker_name: t.worker_name || '',
+            order_id: t.order_id || null,
+            order_no: t.order_no || '',
+            truck_chassis_no: t.truck_chassis_no || '',
+          };
+        })
+        .sort((a, b) => b.id - a.id);
+
+      ratingMap = new Map(memoryWorkerRatings);
+    }
+
+    // Group by Order
+    const orderMap = new Map();
+    // Group by Worker
+    const workerMap = new Map();
+
+    for (const tx of outRows) {
+      const estValue = tx.quantity * (tx.unit_price || 0);
+
+      if (tx.order_id || tx.order_no || tx.truck_chassis_no) {
+        const oKey = tx.order_id ? `id:${tx.order_id}` : `no:${tx.order_no || tx.truck_chassis_no}`;
+        if (!orderMap.has(oKey)) {
+          orderMap.set(oKey, {
+            order_id: tx.order_id,
+            order_no: tx.order_no || '-',
+            truck_chassis_no: tx.truck_chassis_no || '-',
+            total_quantity: 0,
+            total_value: 0,
+            tx_count: 0,
+            workers: new Set(),
+            items: [],
+          });
+        }
+        const og = orderMap.get(oKey);
+        og.total_quantity += tx.quantity;
+        og.total_value += estValue;
+        og.tx_count += 1;
+        if (tx.worker_name) og.workers.add(tx.worker_name);
+        og.items.push(tx);
+      }
+
+      if (tx.worker_id || tx.worker_name) {
+        const wKey = tx.worker_id ? `id:${tx.worker_id}` : `name:${tx.worker_name}`;
+        if (!workerMap.has(wKey)) {
+          workerMap.set(wKey, {
+            worker_id: tx.worker_id,
+            worker_name: tx.worker_name || 'Unknown Worker',
+            total_quantity: 0,
+            total_value: 0,
+            tx_count: 0,
+            order_keys: new Set(),
+            items: [],
+          });
+        }
+        const wg = workerMap.get(wKey);
+        wg.total_quantity += tx.quantity;
+        wg.total_value += estValue;
+        wg.tx_count += 1;
+        if (tx.order_id || tx.order_no || tx.truck_chassis_no) {
+          wg.order_keys.add(tx.order_id ? `id:${tx.order_id}` : `${tx.order_no}:${tx.truck_chassis_no}`);
+        }
+        wg.items.push(tx);
+      }
+    }
+
+    const byOrder = Array.from(orderMap.values()).map((o) => ({
+      order_id: o.order_id,
+      order_no: o.order_no,
+      truck_chassis_no: o.truck_chassis_no,
+      total_quantity: Number(o.total_quantity.toFixed(2)),
+      total_value: Number(o.total_value.toFixed(2)),
+      tx_count: o.tx_count,
+      workers: Array.from(o.workers),
+      items: o.items,
+    }));
+
+    const workerListRaw = Array.from(workerMap.values()).map((w) => {
+      const ordersCount = w.order_keys.size;
+      const avgPerOrder = ordersCount > 0 ? w.total_quantity / ordersCount : w.total_quantity;
+      const savedRating = w.worker_id ? ratingMap.get(Number(w.worker_id)) : null;
+      return {
+        worker_id: w.worker_id,
+        worker_name: w.worker_name,
+        orders_count: ordersCount,
+        tx_count: w.tx_count,
+        total_quantity: Number(w.total_quantity.toFixed(2)),
+        avg_qty_per_order: Number(avgPerOrder.toFixed(2)),
+        total_value: Number(w.total_value.toFixed(2)),
+        manual_rating: savedRating ? savedRating.rating : null,
+        rating_note: savedRating ? savedRating.note : '',
+        items: w.items,
+      };
+    });
+
+    // Calculate auto efficiency rating (lowest avg_qty_per_order = highest 5.0 rating)
+    const minAvg = workerListRaw.length > 0 ? Math.min(...workerListRaw.map((w) => w.avg_qty_per_order)) : 0;
+    const maxAvg = workerListRaw.length > 0 ? Math.max(...workerListRaw.map((w) => w.avg_qty_per_order)) : 0;
+
+    const byWorker = workerListRaw
+      .map((w) => {
+        let autoScore = 5.0;
+        if (maxAvg > minAvg) {
+          const ratio = (w.avg_qty_per_order - minAvg) / (maxAvg - minAvg); // 0 = best (lowest usage), 1 = highest usage
+          autoScore = Number((5 - ratio * 2.5).toFixed(1)); // 2.5 to 5.0 scale
+        }
+        return {
+          ...w,
+          efficiency_score: autoScore,
+          is_top_saver: workerListRaw.length > 0 && w.avg_qty_per_order === minAvg,
+        };
+      })
+      .sort((a, b) => a.avg_qty_per_order - b.avg_qty_per_order);
+
+    return {
+      transactions: outRows,
+      byOrder,
+      byWorker,
+    };
   }
 
   async getStockSummary() {

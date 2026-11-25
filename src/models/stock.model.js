@@ -57,6 +57,11 @@ export const StockTransactionModel = {
     new_quantity: 'DECIMAL(12, 2) NOT NULL',
     date: 'DATE NOT NULL',
     reference_note: 'VARCHAR(255) NULL',
+    worker_id: 'INT NULL',
+    worker_name: 'VARCHAR(150) NULL',
+    order_id: 'INT NULL',
+    order_no: 'VARCHAR(100) NULL',
+    truck_chassis_no: 'VARCHAR(150) NULL',
     created_at: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
     updated_at: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
   },
@@ -64,6 +69,24 @@ export const StockTransactionModel = {
     { name: 'idx_stock_tx_item', column: 'item_id' },
     { name: 'idx_stock_tx_date', column: 'date' },
     { name: 'idx_stock_tx_type', column: 'type' },
+    { name: 'idx_stock_tx_worker', column: 'worker_id' },
+    { name: 'idx_stock_tx_order', column: 'order_id' },
+  ],
+  initialSeed: [],
+};
+
+export const StockWorkerRatingModel = {
+  tableName: 'stock_worker_ratings',
+  columns: {
+    id: 'INT AUTO_INCREMENT PRIMARY KEY',
+    worker_id: 'INT NOT NULL UNIQUE',
+    rating: 'TINYINT NOT NULL DEFAULT 5',
+    note: 'VARCHAR(255) NULL',
+    created_at: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+    updated_at: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+  },
+  indexes: [
+    { name: 'idx_stock_worker_rating_worker', column: 'worker_id' },
   ],
   initialSeed: [],
 };
@@ -72,4 +95,5 @@ export default {
   StockCategoryModel,
   StockItemModel,
   StockTransactionModel,
+  StockWorkerRatingModel,
 };

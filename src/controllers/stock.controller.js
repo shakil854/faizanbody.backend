@@ -114,7 +114,17 @@ export const deleteItem = asyncHandler(async (req, res) => {
 
 export const adjustStock = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { type, quantity, date, reference_note } = req.body;
+  const {
+    type,
+    quantity,
+    date,
+    reference_note,
+    worker_id,
+    worker_name,
+    order_id,
+    order_no,
+    truck_chassis_no,
+  } = req.body;
 
   if (!type || !['IN', 'OUT', 'ADJUSTMENT'].includes(type.toUpperCase())) {
     throw ApiError.badRequest('Valid type (IN, OUT, or ADJUSTMENT) is required');
@@ -130,8 +140,29 @@ export const adjustStock = asyncHandler(async (req, res) => {
       quantity,
       date,
       reference_note,
+      worker_id,
+      worker_name,
+      order_id,
+      order_no,
+      truck_chassis_no,
     });
     return ApiResponse.success(res, updated, 'Stock adjusted successfully');
+  } catch (err) {
+    throw ApiError.badRequest(err.message);
+  }
+});
+
+export const getUsageAnalytics = asyncHandler(async (req, res) => {
+  const { workerId, orderId } = req.query;
+  const analytics = await stockService.getUsageAnalytics({ workerId, orderId });
+  return ApiResponse.success(res, analytics, 'Stock usage analytics fetched successfully');
+});
+
+export const rateWorkerMaterial = asyncHandler(async (req, res) => {
+  const { worker_id, rating, note } = req.body;
+  try {
+    const result = await stockService.setWorkerMaterialRating(worker_id, rating, note);
+    return ApiResponse.success(res, result, 'Worker material rating saved');
   } catch (err) {
     throw ApiError.badRequest(err.message);
   }

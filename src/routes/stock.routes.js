@@ -13,13 +13,17 @@ import {
   getItemTransactions,
   getAllTransactions,
   getStockSummary,
+  getUsageAnalytics,
+  rateWorkerMaterial,
 } from '../controllers/stock.controller.js';
 import { verifyToken, requirePermission } from '../middlewares/auth.middleware.js';
 
 const router = Router();
 
-// Summary metrics
+// Summary metrics & Usage Analytics
 router.get('/stock/summary', verifyToken, requirePermission('stock:view'), getStockSummary);
+router.get('/stock/usage', verifyToken, requirePermission('stock:view'), getUsageAnalytics);
+router.post('/stock/worker-rating', verifyToken, requirePermission('stock:adjust'), rateWorkerMaterial);
 
 // Transactions audit log
 router.get('/stock/transactions', verifyToken, requirePermission('stock:transactions'), getAllTransactions);
