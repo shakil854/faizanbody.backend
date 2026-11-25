@@ -5,6 +5,7 @@ import {
   createQuotation,
   updateQuotation,
   deleteQuotation,
+  approveQuotation,
   getCatalogItems,
   saveCatalogItem,
   deleteCatalogItem,
@@ -37,5 +38,8 @@ router.route('/quotations/:id')
   .get(verifyToken, requirePermission('quotations:view'), getQuotationById)
   .put(verifyToken, requirePermission('quotations:edit'), updateQuotation)
   .delete(verifyToken, requirePermission('quotations:delete'), deleteQuotation);
+
+// Admin-only Approve Quotation -> auto-creates Incoming Work Order + Truck Account (Udhar entry)
+router.post('/quotations/:id/approve', verifyToken, authorizeRoles('admin'), approveQuotation);
 
 export default router;

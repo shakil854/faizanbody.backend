@@ -48,6 +48,16 @@ export const deleteQuotation = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, { id }, 'Quotation deleted successfully');
 });
 
+export const approveQuotation = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const result = await quotationService.approveQuotation(id);
+  return ApiResponse.success(
+    res,
+    result,
+    'Quotation approved! Incoming Order & Truck Account (Udhar) created successfully'
+  );
+});
+
 export const getCatalogItems = asyncHandler(async (req, res) => {
   const items = await quotationService.getCatalogItems();
   return ApiResponse.success(res, items, 'Catalog items retrieved');

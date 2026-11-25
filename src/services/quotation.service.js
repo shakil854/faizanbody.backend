@@ -1,5 +1,7 @@
 import db from '../config/db.js';
 import { settingService } from './setting.service.js';
+import { orderService } from './order.service.js';
+import { truckAccountService } from './truckAccount.service.js';
 
 // Safe in-memory fallback stores (Empty by default - Zero Dummy Data Rule)
 const memoryQuotations = [];
@@ -446,6 +448,72 @@ class QuotationService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Admin Approve Quotation:
+   * 1. Marks quotation status as 'Approved'
+   * 2. Creates an Incoming Work Order with the top 4 fields (order_date, owner_name, mobile_number, truck_chassis_no)
+   * 3. Creates a Truck Account for customer_name and posts final_price as an Udhar entry
+   */
+  async approveQuotation(id) {
+    const numId = Number(id);
+    const quote = await this.getQuotationById(numId);
+    if (!quote) {
+      const err = new Error(`Quotation #${id} not found`);
+      err.statusCode = 404;
+      throw err;
+    }
+    if (quote.status === 'Approved') {
+      const err = new Error('Quotation is already approved');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const updatedQuote = await this.updateQuotation(numId, { status: 'Approved' });
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const orderDate = quote.quotation_date || todayStr;
+
+    // Create Incoming Work Order with the 4 header fields
+    const createdOrder = await orderService.createOrder({
+      order_date: orderDate,
+      owner_name: quote.customer_name || '',
+      mobile_number: quote.mobile_number || '',
+      truck_chassis_no: quote.truck_chassis_no || '',
+      status: 'Incoming',
+      notes: `Approved from Quotation ${quote.quotation_no}${quote.notes ? ` • ${quote.notes}` : ''}`,
+    });
+
+    // Create Truck Account and add Final Price as Udhar entry
+    const createdTruckAccount = await truckAccountService.createAccount({
+      party_name: quote.customer_name || '',
+      truck_no: quote.truck_chassis_no || '',
+      phone: quote.mobile_number || '',
+      notes: `Created from Approved Quotation ${quote.quotation_no}`,
+    });
+
+    const finalPrice = Number(quote.final_price) || 0;
+    if (createdTruckAccount && finalPrice > 0) {
+      await truckAccountService.addEntry(createdTruckAccount.id, {
+        type: 'udhar',
+        amount: finalPrice,
+        date: orderDate,
+        particulars: `Quotation ${quote.quotation_no} - ગાડી બોડી બિલ`,
+        payment_mode: 'Cash',
+        add_to_rojmed: false,
+      });
+    }
+
+    const updatedTruckAccount = createdTruckAccount
+      ? await truckAccountService.getAccountById(createdTruckAccount.id)
+      : null;
+
+    return {
+      quotation: updatedQuote,
+      order: createdOrder,
+      truckAccount: updatedTruckAccount,
+    };
   }
 
   // =========================================================================
