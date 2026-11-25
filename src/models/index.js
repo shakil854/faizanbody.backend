@@ -12,6 +12,7 @@ import { SettingModel } from './setting.model.js';
 import { SessionModel } from './session.model.js';
 import { QuotationModel, QuotationCatalogItemModel } from './quotation.model.js';
 import { TruckAccountModel, TruckAccountEntryModel } from './truckAccount.model.js';
+import { VyapariAccountModel, VyapariAccountEntryModel } from './vyapari.model.js';
 import { RojmedEntryModel, RojmedOpeningModel } from './rojmed.model.js';
 
 export const models = [
@@ -29,6 +30,8 @@ export const models = [
   QuotationCatalogItemModel,
   TruckAccountModel,
   TruckAccountEntryModel,
+  VyapariAccountModel,
+  VyapariAccountEntryModel,
   RojmedEntryModel,
   RojmedOpeningModel,
 ];
@@ -48,6 +51,8 @@ export {
   QuotationCatalogItemModel,
   TruckAccountModel,
   TruckAccountEntryModel,
+  VyapariAccountModel,
+  VyapariAccountEntryModel,
   RojmedEntryModel,
   RojmedOpeningModel,
 };

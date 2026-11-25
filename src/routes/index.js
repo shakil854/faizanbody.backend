@@ -9,6 +9,7 @@ import userRoutes from './user.routes.js';
 import quotationRoutes from './quotation.routes.js';
 import backupRoutes from './backup.routes.js';
 import truckAccountRoutes from './truckAccount.routes.js';
+import vyapariRoutes from './vyapari.routes.js';
 import rojmedRoutes from './rojmed.routes.js';
 
 const router = Router();
@@ -24,6 +25,7 @@ router.use('/', userRoutes);
 router.use('/', quotationRoutes);
 router.use('/', backupRoutes);
 router.use('/', truckAccountRoutes);
+router.use('/', vyapariRoutes);
 router.use('/', rojmedRoutes);
 
 export default router;

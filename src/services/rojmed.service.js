@@ -1,6 +1,7 @@
 import db, { pool } from '../config/db.js';
 import { workerService } from './worker.service.js';
 import { truckAccountService } from './truckAccount.service.js';
+import { vyapariService } from './vyapari.service.js';
 
 /**
  * In-memory fallback datasets for when MySQL is offline
@@ -29,7 +30,7 @@ function getTodayDate() {
 
 function resolveSourceConfig({ entryType, sourceType, subType }) {
   const cleanEntryType = entryType === 'aavak' ? 'aavak' : 'javak';
-  const cleanSourceType = ['worker', 'truck_account'].includes(sourceType) ? sourceType : 'general';
+  const cleanSourceType = ['worker', 'truck_account', 'vyapari_account'].includes(sourceType) ? sourceType : 'general';
 
   if (cleanSourceType === 'worker') {
     if (cleanEntryType === 'aavak') {
@@ -71,6 +72,25 @@ function resolveSourceConfig({ entryType, sourceType, subType }) {
     };
   }
 
+  if (cleanSourceType === 'vyapari_account') {
+    if (cleanEntryType === 'aavak') {
+      return {
+        entry_type: 'aavak',
+        source_type: 'vyapari_account',
+        rojmed_sub_type: 'jama',
+        vyapari_entry_type: 'jama',
+        default_label: 'રોકડા જમા',
+      };
+    }
+    return {
+      entry_type: 'javak',
+      source_type: 'vyapari_account',
+      rojmed_sub_type: 'udhar',
+      vyapari_entry_type: 'udhar',
+      default_label: 'રોકડ ખર્ચ / ઉધાર',
+    };
+  }
+
   return {
     entry_type: cleanEntryType,
     source_type: 'general',
@@ -98,6 +118,9 @@ function formatEntryRow(r) {
     truck_party_name: r.truck_party_name || null,
     truck_no: r.truck_no || null,
     truck_page_no: r.truck_page_no !== null && r.truck_page_no !== undefined ? Number(r.truck_page_no) : null,
+    vyapari_party_name: r.vyapari_party_name || null,
+    vyapari_firm_name: r.vyapari_firm_name || null,
+    vyapari_page_no: r.vyapari_page_no !== null && r.vyapari_page_no !== undefined ? Number(r.vyapari_page_no) : null,
     created_at: r.created_at,
     updated_at: r.updated_at,
   };
@@ -210,10 +233,14 @@ class RojmedService {
         w.mobile AS worker_mobile,
         t.party_name AS truck_party_name,
         t.truck_no AS truck_no,
-        t.page_no AS truck_page_no
+        t.page_no AS truck_page_no,
+        v.party_name AS vyapari_party_name,
+        v.firm_name AS vyapari_firm_name,
+        v.page_no AS vyapari_page_no
       FROM rojmed_entries r
       LEFT JOIN workers w ON r.source_type = 'worker' AND r.source_id = w.id
       LEFT JOIN truck_accounts t ON r.source_type = 'truck_account' AND r.source_id = t.id
+      LEFT JOIN vyapari_accounts v ON r.source_type = 'vyapari_account' AND r.source_id = v.id
       WHERE r.id = ? LIMIT 1`,
       [Number(id)]
     );
@@ -236,10 +263,14 @@ class RojmedService {
           w.mobile AS worker_mobile,
           t.party_name AS truck_party_name,
           t.truck_no AS truck_no,
-          t.page_no AS truck_page_no
+          t.page_no AS truck_page_no,
+          v.party_name AS vyapari_party_name,
+          v.firm_name AS vyapari_firm_name,
+          v.page_no AS vyapari_page_no
         FROM rojmed_entries r
         LEFT JOIN workers w ON r.source_type = 'worker' AND r.source_id = w.id
         LEFT JOIN truck_accounts t ON r.source_type = 'truck_account' AND r.source_id = t.id
+        LEFT JOIN vyapari_accounts v ON r.source_type = 'vyapari_account' AND r.source_id = v.id
         WHERE r.date = ?
         ORDER BY r.id ASC`,
         [targetDate]
@@ -434,6 +465,9 @@ class RojmedService {
       const [truckRows] = await db.query(
         'SELECT id, party_name, truck_no, page_no, phone FROM truck_accounts ORDER BY page_no ASC, party_name ASC'
       );
+      const [vyapariRows] = await db.query(
+        'SELECT id, party_name, firm_name, page_no, phone FROM vyapari_accounts ORDER BY page_no ASC, party_name ASC'
+      );
 
       return {
         workers: (workerRows || []).map((w) => ({
@@ -449,11 +483,19 @@ class RojmedService {
           page_no: t.page_no !== null && t.page_no !== undefined ? Number(t.page_no) : null,
           phone: t.phone || '',
         })),
+        vyapari_accounts: (vyapariRows || []).map((v) => ({
+          id: v.id,
+          party_name: v.party_name,
+          firm_name: v.firm_name || '',
+          page_no: v.page_no !== null && v.page_no !== undefined ? Number(v.page_no) : null,
+          phone: v.phone || '',
+        })),
       };
     } catch (err) {
       console.warn('⚠️ [RojmedService getAccountsOptions DB Fallback]:', err.message);
       const workers = await workerService.getAllWorkers();
       const trucks = await truckAccountService.getAllAccounts();
+      const vyaparis = await vyapariService.getAllAccounts();
       return {
         workers: workers.map((w) => ({
           id: w.id,
@@ -467,6 +509,13 @@ class RojmedService {
           truck_no: t.truck_no || '',
           page_no: t.page_no ?? null,
           phone: t.phone || '',
+        })),
+        vyapari_accounts: vyaparis.map((v) => ({
+          id: v.id,
+          party_name: v.party_name,
+          firm_name: v.firm_name || '',
+          page_no: v.page_no ?? null,
+          phone: v.phone || '',
         })),
       };
     }
@@ -577,6 +626,21 @@ class RojmedService {
         if (!cleanParticulars) {
           cleanParticulars = `${sourceLabel} - ${config.default_label}`;
         }
+      } else if (config.source_type === 'vyapari_account') {
+        const [vRows] = await conn.query(
+          'SELECT id, party_name, firm_name FROM vyapari_accounts WHERE id = ? LIMIT 1',
+          [sourceId]
+        );
+        if (!vRows || vRows.length === 0) {
+          const err = new Error('Selected vyapari account not found');
+          err.statusCode = 404;
+          throw err;
+        }
+        const v = vRows[0];
+        sourceLabel = v.firm_name ? `${v.party_name} (${v.firm_name})` : v.party_name;
+        if (!cleanParticulars) {
+          cleanParticulars = `${sourceLabel} - ${config.default_label}`;
+        }
       }
 
       const [insertRes] = await conn.query(
@@ -616,6 +680,15 @@ class RojmedService {
         );
         linkedTxId = txRes.insertId;
         await conn.query('UPDATE rojmed_entries SET linked_tx_id = ? WHERE id = ?', [linkedTxId, rojmedId]);
+      } else if (config.source_type === 'vyapari_account') {
+        const vyapariPart = cleanNotes || cleanParticulars || config.default_label;
+        const [txRes] = await conn.query(
+          `INSERT INTO vyapari_account_entries (account_id, type, amount, date, particulars, payment_mode, rojmed_entry_id)
+           VALUES (?, ?, ?, ?, ?, 'Cash', ?)`,
+          [sourceId, config.vyapari_entry_type, numAmount, cleanDate, vyapariPart, rojmedId]
+        );
+        linkedTxId = txRes.insertId;
+        await conn.query('UPDATE rojmed_entries SET linked_tx_id = ? WHERE id = ?', [linkedTxId, rojmedId]);
       }
 
       await conn.commit();
@@ -635,6 +708,9 @@ class RojmedService {
       let truckParty = null;
       let truckNo = null;
       let truckPage = null;
+      let vyapariParty = null;
+      let vyapariFirm = null;
+      let vyapariPage = null;
       let linkedTxId = null;
       const rojmedId = nextEntryId++;
 
@@ -680,6 +756,28 @@ class RojmedService {
           _skipRojmedSync: true,
         });
         linkedTxId = tx?.id || null;
+      } else if (config.source_type === 'vyapari_account') {
+        const v = await vyapariService.getAccountById(sourceId);
+        if (!v) {
+          const nf = new Error('Selected vyapari account not found');
+          nf.statusCode = 404;
+          throw nf;
+        }
+        vyapariParty = v.party_name;
+        vyapariFirm = v.firm_name || '';
+        vyapariPage = v.page_no ?? null;
+        const label = vyapariFirm ? `${vyapariParty} (${vyapariFirm})` : vyapariParty;
+        if (!cleanParticulars) cleanParticulars = `${label} - ${config.default_label}`;
+        const tx = await vyapariService.addEntry(sourceId, {
+          type: config.vyapari_entry_type,
+          amount: numAmount,
+          date: cleanDate,
+          particulars: cleanNotes || cleanParticulars,
+          payment_mode: 'Cash',
+          rojmed_entry_id: rojmedId,
+          _skipRojmedSync: true,
+        });
+        linkedTxId = tx?.id || null;
       }
 
       const newEntry = {
@@ -700,6 +798,9 @@ class RojmedService {
         truck_party_name: truckParty,
         truck_no: truckNo,
         truck_page_no: truckPage,
+        vyapari_party_name: vyapariParty,
+        vyapari_firm_name: vyapariFirm,
+        vyapari_page_no: vyapariPage,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -760,6 +861,18 @@ class RojmedService {
         }
         const label = tRows[0].truck_no ? `${tRows[0].party_name} (${tRows[0].truck_no})` : tRows[0].party_name;
         if (!cleanParticulars) cleanParticulars = `${label} - ${config.default_label}`;
+      } else if (config.source_type === 'vyapari_account') {
+        const [vRows] = await conn.query(
+          'SELECT id, party_name, firm_name FROM vyapari_accounts WHERE id = ? LIMIT 1',
+          [sourceId]
+        );
+        if (!vRows || vRows.length === 0) {
+          const err = new Error('Selected vyapari account not found');
+          err.statusCode = 404;
+          throw err;
+        }
+        const label = vRows[0].firm_name ? `${vRows[0].party_name} (${vRows[0].firm_name})` : vRows[0].party_name;
+        if (!cleanParticulars) cleanParticulars = `${label} - ${config.default_label}`;
       }
 
       let newLinkedTxId = existing.linked_tx_id ? Number(existing.linked_tx_id) : null;
@@ -772,6 +885,8 @@ class RojmedService {
           workerService.invalidateCache();
         } else if (existing.source_type === 'truck_account') {
           await conn.query('DELETE FROM truck_account_entries WHERE id = ?', [newLinkedTxId]);
+        } else if (existing.source_type === 'vyapari_account') {
+          await conn.query('DELETE FROM vyapari_account_entries WHERE id = ?', [newLinkedTxId]);
         }
         newLinkedTxId = null;
       }
@@ -819,6 +934,27 @@ class RojmedService {
           );
           newLinkedTxId = ins.insertId;
         }
+      } else if (config.source_type === 'vyapari_account') {
+        const vyapariPart = cleanNotes || cleanParticulars || config.default_label;
+        if (newLinkedTxId && !sourceTypeChanged) {
+          const [upd] = await conn.query(
+            `UPDATE vyapari_account_entries
+             SET account_id = ?, type = ?, amount = ?, date = ?, particulars = ?, payment_mode = 'Cash', rojmed_entry_id = ?
+             WHERE id = ?`,
+            [sourceId, config.vyapari_entry_type, numAmount, cleanDate, vyapariPart, numId, newLinkedTxId]
+          );
+          if (upd.affectedRows === 0) {
+            newLinkedTxId = null;
+          }
+        }
+        if (!newLinkedTxId) {
+          const [ins] = await conn.query(
+            `INSERT INTO vyapari_account_entries (account_id, type, amount, date, particulars, payment_mode, rojmed_entry_id)
+             VALUES (?, ?, ?, ?, ?, 'Cash', ?)`,
+            [sourceId, config.vyapari_entry_type, numAmount, cleanDate, vyapariPart, numId]
+          );
+          newLinkedTxId = ins.insertId;
+        }
       } else {
         newLinkedTxId = null;
       }
@@ -860,6 +996,10 @@ class RojmedService {
           await workerService.deleteWorkerTransaction(existing.linked_tx_id, { _skipRojmedSync: true });
         } else if (existing.source_type === 'truck_account') {
           await truckAccountService.deleteEntry(existing.source_id, existing.linked_tx_id, { _skipRojmedSync: true });
+        } else if (existing.source_type === 'vyapari_account') {
+          await vyapariService.deleteEntry(existing.source_id, existing.linked_tx_id, { _skipRojmedSync: true });
+        } else if (existing.source_type === 'vyapari_account') {
+          await vyapariService.deleteEntry(existing.source_id, existing.linked_tx_id, { _skipRojmedSync: true });
         }
       }
 
@@ -868,6 +1008,9 @@ class RojmedService {
       let truckParty = null;
       let truckNo = null;
       let truckPage = null;
+      let vyapariParty = null;
+      let vyapariFirm = null;
+      let vyapariPage = null;
 
       if (config.source_type === 'worker') {
         const w = await workerService.getWorkerById(sourceId);
@@ -937,6 +1080,41 @@ class RojmedService {
           });
           linkedTxId = created?.id || null;
         }
+      } else if (config.source_type === 'vyapari_account') {
+        const v = await vyapariService.getAccountById(sourceId);
+        if (!v) {
+          const nf = new Error('Selected vyapari account not found');
+          nf.statusCode = 404;
+          throw nf;
+        }
+        vyapariParty = v.party_name;
+        vyapariFirm = v.firm_name || '';
+        vyapariPage = v.page_no ?? null;
+        const label = vyapariFirm ? `${vyapariParty} (${vyapariFirm})` : vyapariParty;
+        if (!cleanParticulars) cleanParticulars = `${label} - ${config.default_label}`;
+        if (linkedTxId) {
+          const upd = await vyapariService.updateEntry(sourceId, linkedTxId, {
+            type: config.vyapari_entry_type,
+            amount: numAmount,
+            date: cleanDate,
+            particulars: cleanNotes || cleanParticulars,
+            payment_mode: 'Cash',
+            _skipRojmedSync: true,
+          });
+          if (!upd) linkedTxId = null;
+        }
+        if (!linkedTxId) {
+          const created = await vyapariService.addEntry(sourceId, {
+            type: config.vyapari_entry_type,
+            amount: numAmount,
+            date: cleanDate,
+            particulars: cleanNotes || cleanParticulars,
+            payment_mode: 'Cash',
+            rojmed_entry_id: numId,
+            _skipRojmedSync: true,
+          });
+          linkedTxId = created?.id || null;
+        }
       } else {
         linkedTxId = null;
       }
@@ -956,6 +1134,9 @@ class RojmedService {
         truck_party_name: truckParty,
         truck_no: truckNo,
         truck_page_no: truckPage,
+        vyapari_party_name: vyapariParty,
+        vyapari_firm_name: vyapariFirm,
+        vyapari_page_no: vyapariPage,
         updated_at: new Date().toISOString(),
       };
       const sheet = await this.getDailySheet(cleanDate);
@@ -990,6 +1171,8 @@ class RojmedService {
           workerService.invalidateCache();
         } else if (existing.source_type === 'truck_account') {
           await conn.query('DELETE FROM truck_account_entries WHERE id = ?', [existing.linked_tx_id]);
+        } else if (existing.source_type === 'vyapari_account') {
+          await conn.query('DELETE FROM vyapari_account_entries WHERE id = ?', [existing.linked_tx_id]);
         }
       }
 
@@ -1012,6 +1195,8 @@ class RojmedService {
           await workerService.deleteWorkerTransaction(existing.linked_tx_id, { _skipRojmedSync: true });
         } else if (existing.source_type === 'truck_account') {
           await truckAccountService.deleteEntry(existing.source_id, existing.linked_tx_id, { _skipRojmedSync: true });
+        } else if (existing.source_type === 'vyapari_account') {
+          await vyapariService.deleteEntry(existing.source_id, existing.linked_tx_id, { _skipRojmedSync: true });
         }
       }
 
@@ -1043,6 +1228,9 @@ class RojmedService {
     truckPartyName = null,
     truckNo = null,
     truckPageNo = null,
+    vyapariPartyName = null,
+    vyapariFirmName = null,
+    vyapariPageNo = null,
   }) {
     if (action === 'delete') {
       if (!rojmedEntryId) return null;
@@ -1069,6 +1257,9 @@ class RojmedService {
           truck_party_name: truckPartyName,
           truck_no: truckNo,
           truck_page_no: truckPageNo,
+          vyapari_party_name: vyapariPartyName,
+          vyapari_firm_name: vyapariFirmName,
+          vyapari_page_no: vyapariPageNo,
           updated_at: new Date().toISOString(),
         };
         return memoryRojmedEntries[idx].id;
@@ -1094,6 +1285,9 @@ class RojmedService {
       truck_party_name: truckPartyName,
       truck_no: truckNo,
       truck_page_no: truckPageNo,
+      vyapari_party_name: vyapariPartyName,
+      vyapari_firm_name: vyapariFirmName,
+      vyapari_page_no: vyapariPageNo,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
