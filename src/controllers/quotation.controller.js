@@ -54,7 +54,17 @@ export const approveQuotation = asyncHandler(async (req, res) => {
   return ApiResponse.success(
     res,
     result,
-    'Quotation approved! Incoming Order & Truck Account (Udhar) created successfully'
+    'Quotation approved! Incoming Order & Truck Account (Udhar) updated successfully'
+  );
+});
+
+export const unapproveQuotation = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const result = await quotationService.unapproveQuotation(id);
+  return ApiResponse.success(
+    res,
+    result,
+    'Quotation unapproved! Linked order and truck entry rolled back successfully'
   );
 });
 

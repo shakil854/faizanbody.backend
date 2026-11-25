@@ -54,6 +54,10 @@ const formatQuotationRow = (row) => {
     final_price: Number(row.final_price) || 0,
     notes: row.notes || '',
     status: row.status || 'Draft',
+    approved_order_id: row.approved_order_id ? Number(row.approved_order_id) : null,
+    approved_truck_account_id: row.approved_truck_account_id ? Number(row.approved_truck_account_id) : null,
+    approved_truck_entry_id: row.approved_truck_entry_id ? Number(row.approved_truck_entry_id) : null,
+    approved_truck_account_created: Boolean(row.approved_truck_account_created),
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -451,10 +455,39 @@ class QuotationService {
   }
 
   /**
+   * Helper to persist approval tracking fields safely in SQL & Memory
+   */
+  async _setApprovalTracking(numId, { status, orderId, truckAccountId, truckEntryId, truckAccountCreated }) {
+    try {
+      await db.query(
+        `UPDATE quotations
+         SET status = ?, approved_order_id = ?, approved_truck_account_id = ?, approved_truck_entry_id = ?, approved_truck_account_created = ?
+         WHERE id = ?`,
+        [status, orderId, truckAccountId, truckEntryId, truckAccountCreated ? 1 : 0, numId]
+      );
+    } catch (err) {
+      console.warn('⚠️ [QuotationService _setApprovalTracking DB Fallback]:', err.message);
+      const idx = memoryQuotations.findIndex((q) => q.id === numId);
+      if (idx !== -1) {
+        memoryQuotations[idx] = {
+          ...memoryQuotations[idx],
+          status,
+          approved_order_id: orderId,
+          approved_truck_account_id: truckAccountId,
+          approved_truck_entry_id: truckEntryId,
+          approved_truck_account_created: truckAccountCreated ? 1 : 0,
+        };
+      }
+    }
+    return this.getQuotationById(numId);
+  }
+
+  /**
    * Admin Approve Quotation:
    * 1. Marks quotation status as 'Approved'
    * 2. Creates an Incoming Work Order with the top 4 fields (order_date, owner_name, mobile_number, truck_chassis_no)
-   * 3. Creates a Truck Account for customer_name and posts final_price as an Udhar entry
+   * 3. Finds an existing Truck Account (by party_name / truck_no / phone) OR creates one if none exists,
+   *    then posts final_price as an Udhar entry.
    */
   async approveQuotation(id) {
     const numId = Number(id);
@@ -470,12 +503,10 @@ class QuotationService {
       throw err;
     }
 
-    const updatedQuote = await this.updateQuotation(numId, { status: 'Approved' });
-
     const todayStr = new Date().toISOString().split('T')[0];
     const orderDate = quote.quotation_date || todayStr;
 
-    // Create Incoming Work Order with the 4 header fields
+    // 1. Create Incoming Work Order with the 4 header fields
     const createdOrder = await orderService.createOrder({
       order_date: orderDate,
       owner_name: quote.customer_name || '',
@@ -485,17 +516,40 @@ class QuotationService {
       notes: `Approved from Quotation ${quote.quotation_no}${quote.notes ? ` • ${quote.notes}` : ''}`,
     });
 
-    // Create Truck Account and add Final Price as Udhar entry
-    const createdTruckAccount = await truckAccountService.createAccount({
-      party_name: quote.customer_name || '',
-      truck_no: quote.truck_chassis_no || '',
-      phone: quote.mobile_number || '',
-      notes: `Created from Approved Quotation ${quote.quotation_no}`,
+    // 2. Check if Truck Account already exists before creating a new one
+    const cleanName = (quote.customer_name || '').trim().toLowerCase();
+    const cleanTruck = (quote.truck_chassis_no || '').trim().toLowerCase();
+    const cleanPhone = (quote.mobile_number || '').replace(/[^0-9]/g, '');
+
+    const allTruckAccounts = await truckAccountService.getAllAccounts();
+    const existingAccount = allTruckAccounts.find((acc) => {
+      const accName = (acc.party_name || '').trim().toLowerCase();
+      const accTruck = (acc.truck_no || '').trim().toLowerCase();
+      const accPhone = (acc.phone || '').replace(/[^0-9]/g, '');
+      if (cleanName && accName === cleanName) return true;
+      if (cleanTruck && accTruck && accTruck === cleanTruck) return true;
+      if (cleanPhone.length >= 10 && accPhone && accPhone.endsWith(cleanPhone.slice(-10))) return true;
+      return false;
     });
 
+    let targetTruckAccount = existingAccount || null;
+    let truckAccountCreated = false;
+
+    if (!targetTruckAccount) {
+      targetTruckAccount = await truckAccountService.createAccount({
+        party_name: quote.customer_name || '',
+        truck_no: quote.truck_chassis_no || '',
+        phone: quote.mobile_number || '',
+        notes: `Created from Approved Quotation ${quote.quotation_no}`,
+      });
+      truckAccountCreated = true;
+    }
+
+    // 3. Add Final Price as Udhar entry to the target Truck Account
     const finalPrice = Number(quote.final_price) || 0;
-    if (createdTruckAccount && finalPrice > 0) {
-      await truckAccountService.addEntry(createdTruckAccount.id, {
+    let createdEntry = null;
+    if (targetTruckAccount && finalPrice > 0) {
+      createdEntry = await truckAccountService.addEntry(targetTruckAccount.id, {
         type: 'udhar',
         amount: finalPrice,
         date: orderDate,
@@ -505,14 +559,83 @@ class QuotationService {
       });
     }
 
-    const updatedTruckAccount = createdTruckAccount
-      ? await truckAccountService.getAccountById(createdTruckAccount.id)
+    // 4. Persist approval tracking IDs on the quotation so Unapprove can cleanly roll back
+    const updatedQuote = await this._setApprovalTracking(numId, {
+      status: 'Approved',
+      orderId: createdOrder?.id || null,
+      truckAccountId: targetTruckAccount?.id || null,
+      truckEntryId: createdEntry?.id || null,
+      truckAccountCreated,
+    });
+
+    const updatedTruckAccount = targetTruckAccount
+      ? await truckAccountService.getAccountById(targetTruckAccount.id)
       : null;
 
     return {
       quotation: updatedQuote,
       order: createdOrder,
       truckAccount: updatedTruckAccount,
+      reusedExistingTruckAccount: !truckAccountCreated,
+    };
+  }
+
+  /**
+   * Admin Unapprove Quotation:
+   * Safely reverts an accidental approval:
+   * 1. Removes the auto-created Incoming Work Order (if any)
+   * 2. Removes the auto-created Udhar entry from the Truck Account
+   * 3. If a brand-new Truck Account was created for this approval (and has no other entries), removes it;
+   *    otherwise keeps the existing Truck Account 100% intact
+   * 4. Reverts quotation status back to 'Draft'
+   */
+  async unapproveQuotation(id) {
+    const numId = Number(id);
+    const quote = await this.getQuotationById(numId);
+    if (!quote) {
+      const err = new Error(`Quotation #${id} not found`);
+      err.statusCode = 404;
+      throw err;
+    }
+    if (quote.status !== 'Approved') {
+      const err = new Error('Quotation is not currently approved');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    // 1. Delete auto-created Incoming Order if tracked
+    if (quote.approved_order_id) {
+      await orderService.deleteOrder(quote.approved_order_id).catch(() => {});
+    }
+
+    // 2. Delete auto-created Udhar entry (and remove newly created empty Truck Account if applicable)
+    if (quote.approved_truck_account_id) {
+      if (quote.approved_truck_entry_id) {
+        await truckAccountService
+          .deleteEntry(quote.approved_truck_account_id, quote.approved_truck_entry_id)
+          .catch(() => {});
+      }
+      if (quote.approved_truck_account_created) {
+        const acc = await truckAccountService.getAccountById(quote.approved_truck_account_id).catch(() => null);
+        if (acc && (!acc.entries || acc.entries.length === 0)) {
+          await truckAccountService.deleteAccount(quote.approved_truck_account_id).catch(() => {});
+        }
+      }
+    }
+
+    // 3. Revert status to Draft & clear approval tracking IDs
+    const updatedQuote = await this._setApprovalTracking(numId, {
+      status: 'Draft',
+      orderId: null,
+      truckAccountId: null,
+      truckEntryId: null,
+      truckAccountCreated: false,
+    });
+
+    return {
+      quotation: updatedQuote,
+      revertedOrderId: quote.approved_order_id || null,
+      revertedTruckAccountId: quote.approved_truck_account_id || null,
     };
   }
 
