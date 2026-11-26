@@ -113,6 +113,8 @@ function formatEntryRow(r) {
     linked_tx_id: r.linked_tx_id ? Number(r.linked_tx_id) : null,
     payment_mode: r.payment_mode || 'Cash',
     notes: r.notes || '',
+    reminder_date: r.reminder_date ? formatLocalDate(r.reminder_date) : '',
+    reminder_note: r.reminder_note || '',
     created_by: r.created_by || null,
     worker_name: r.worker_name || null,
     worker_mobile: r.worker_mobile || null,
@@ -278,18 +280,35 @@ class RojmedService {
       );
 
       const entries = (rows || []).map(formatEntryRow);
-      return this._buildDailySheetPayload(targetDate, openingInfo, entries);
+
+      let dueReminders = [];
+      try {
+        const [remRows] = await db.query(
+          `SELECT * FROM rojmed_entries
+           WHERE source_type = 'general' AND reminder_date IS NOT NULL AND reminder_date <= ?
+           ORDER BY reminder_date ASC, id DESC`,
+          [targetDate]
+        );
+        dueReminders = (remRows || []).map(formatEntryRow);
+      } catch {
+        dueReminders = [];
+      }
+
+      return this._buildDailySheetPayload(targetDate, openingInfo, entries, dueReminders);
     } catch (err) {
       console.warn('⚠️ [RojmedService getDailySheet DB Fallback]:', err.message);
       const openingInfo = this._computeOpeningSilakMemory(targetDate);
       const entries = memoryRojmedEntries
         .filter((e) => e.date === targetDate)
         .sort((a, b) => a.id - b.id);
-      return this._buildDailySheetPayload(targetDate, openingInfo, entries);
+      const dueReminders = memoryRojmedEntries
+        .filter((e) => e.source_type === 'general' && e.reminder_date && e.reminder_date <= targetDate)
+        .sort((a, b) => (a.reminder_date || '').localeCompare(b.reminder_date || '') || b.id - a.id);
+      return this._buildDailySheetPayload(targetDate, openingInfo, entries, dueReminders);
     }
   }
 
-  _buildDailySheetPayload(targetDate, openingInfo, entries) {
+  _buildDailySheetPayload(targetDate, openingInfo, entries, dueReminders = []) {
     const aavakEntries = entries.filter((e) => e.entry_type === 'aavak');
     const javakEntries = entries.filter((e) => e.entry_type === 'javak');
 
@@ -306,6 +325,7 @@ class RojmedService {
       anchor_date: openingInfo.anchor_date || null,
       aavak_entries: aavakEntries,
       javak_entries: javakEntries,
+      due_reminders: dueReminders,
       total_aavak_entries: totalAavakEntries,
       total_aavak_with_opening: totalAavakWithOpening,
       total_javak: totalJavak,
@@ -644,10 +664,17 @@ class RojmedService {
         }
       }
 
+      const cleanReminderDate = config.source_type === 'general' && payload.reminder_date
+        ? formatLocalDate(payload.reminder_date)
+        : null;
+      const cleanReminderNote = config.source_type === 'general' && payload.reminder_note
+        ? String(payload.reminder_note).trim()
+        : null;
+
       const [insertRes] = await conn.query(
         `INSERT INTO rojmed_entries
-          (date, entry_type, amount, particulars, source_type, source_id, sub_type, linked_tx_id, payment_mode, notes, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'Cash', ?, ?)`,
+          (date, entry_type, amount, particulars, source_type, source_id, sub_type, linked_tx_id, payment_mode, notes, reminder_date, reminder_note, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'Cash', ?, ?, ?, ?)`,
         [
           cleanDate,
           config.entry_type,
@@ -657,6 +684,8 @@ class RojmedService {
           sourceId,
           config.rojmed_sub_type,
           cleanNotes || null,
+          cleanReminderDate,
+          cleanReminderNote,
           userId,
         ]
       );
@@ -996,10 +1025,17 @@ class RojmedService {
         newLinkedTxId = null;
       }
 
+      const cleanReminderDate = config.source_type === 'general' && payload.reminder_date
+        ? formatLocalDate(payload.reminder_date)
+        : null;
+      const cleanReminderNote = config.source_type === 'general' && payload.reminder_note
+        ? String(payload.reminder_note).trim()
+        : null;
+
       await conn.query(
         `UPDATE rojmed_entries
          SET date = ?, entry_type = ?, amount = ?, particulars = ?, source_type = ?, source_id = ?,
-             sub_type = ?, linked_tx_id = ?, notes = ?, payment_mode = 'Cash'
+             sub_type = ?, linked_tx_id = ?, notes = ?, reminder_date = ?, reminder_note = ?, payment_mode = 'Cash'
          WHERE id = ?`,
         [
           cleanDate,
@@ -1011,6 +1047,8 @@ class RojmedService {
           config.rojmed_sub_type,
           newLinkedTxId,
           cleanNotes || null,
+          cleanReminderDate,
+          cleanReminderNote,
           numId,
         ]
       );
@@ -1167,6 +1205,8 @@ class RojmedService {
         sub_type: config.rojmed_sub_type,
         linked_tx_id: linkedTxId,
         notes: cleanNotes,
+        reminder_date: config.source_type === 'general' && payload.reminder_date ? formatLocalDate(payload.reminder_date) : '',
+        reminder_note: config.source_type === 'general' && payload.reminder_note ? String(payload.reminder_note).trim() : '',
         worker_name: workerName,
         truck_party_name: truckParty,
         truck_no: truckNo,
@@ -1180,6 +1220,28 @@ class RojmedService {
       return { entry: memoryRojmedEntries[idx], sheet };
     } finally {
       if (conn) conn.release();
+    }
+  }
+
+  async clearEntryReminder(entryId) {
+    const numId = Number(entryId);
+    try {
+      const [res] = await db.query(
+        'UPDATE rojmed_entries SET reminder_date = NULL, reminder_note = NULL WHERE id = ?',
+        [numId]
+      );
+      if (res.affectedRows === 0) return null;
+      return { success: true, id: numId };
+    } catch (err) {
+      console.warn('⚠️ [RojmedService clearEntryReminder DB Fallback]:', err.message);
+      const idx = memoryRojmedEntries.findIndex((e) => e.id === numId);
+      if (idx === -1) return null;
+      memoryRojmedEntries[idx] = {
+        ...memoryRojmedEntries[idx],
+        reminder_date: '',
+        reminder_note: '',
+      };
+      return { success: true, id: numId };
     }
   }
 

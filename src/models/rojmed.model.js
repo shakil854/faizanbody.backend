@@ -23,6 +23,8 @@ export const RojmedEntryModel = {
     linked_tx_id: 'INT NULL',
     payment_mode: "VARCHAR(50) NOT NULL DEFAULT 'Cash'",
     notes: 'VARCHAR(255) NULL',
+    reminder_date: 'DATE NULL',
+    reminder_note: 'VARCHAR(255) NULL',
     created_by: 'INT NULL',
     created_at: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
     updated_at: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',

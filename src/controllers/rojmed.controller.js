@@ -4,7 +4,18 @@ import { ApiError } from '../utils/apiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 function validateEntryPayload(body) {
-  const { entry_type, amount, particulars, source_type = 'general', source_id, sub_type, date, notes } = body || {};
+  const {
+    entry_type,
+    amount,
+    particulars,
+    source_type = 'general',
+    source_id,
+    sub_type,
+    date,
+    notes,
+    reminder_date,
+    reminder_note,
+  } = body || {};
 
   if (!['aavak', 'javak'].includes(entry_type)) {
     throw ApiError.badRequest('Valid entry_type is required (aavak or javak)');
@@ -40,6 +51,8 @@ function validateEntryPayload(body) {
     sub_type,
     date,
     notes: notes ? String(notes).trim() : '',
+    reminder_date: source_type === 'general' && reminder_date ? String(reminder_date).split('T')[0].trim() : null,
+    reminder_note: source_type === 'general' && reminder_note ? String(reminder_note).trim() : '',
   };
 }
 
@@ -124,5 +137,14 @@ export const deleteRojmedEntry = asyncHandler(async (req, res) => {
     throw ApiError.notFound('Rojmed entry not found');
   }
   return ApiResponse.success(res, result, 'Rojmed entry deleted successfully');
+});
+
+export const clearRojmedEntryReminder = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const result = await rojmedService.clearEntryReminder(id);
+  if (!result) {
+    throw ApiError.notFound('Rojmed entry not found');
+  }
+  return ApiResponse.success(res, result, 'Rojmed reminder cleared');
 });
 

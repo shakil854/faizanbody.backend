@@ -7,6 +7,7 @@ import {
   createRojmedEntry,
   updateRojmedEntry,
   deleteRojmedEntry,
+  clearRojmedEntryReminder,
 } from '../controllers/rojmed.controller.js';
 import { verifyToken, requirePermission, requireAnyPermission } from '../middlewares/auth.middleware.js';
 
@@ -31,6 +32,12 @@ router.put(
 
 router.post('/rojmed/entries', verifyToken, requirePermission('rojmed:create'), createRojmedEntry);
 router.put('/rojmed/entries/:id', verifyToken, requirePermission('rojmed:edit'), updateRojmedEntry);
+router.put(
+  '/rojmed/entries/:id/clear-reminder',
+  verifyToken,
+  requireAnyPermission('rojmed:view', 'rojmed:create', 'rojmed:edit'),
+  clearRojmedEntryReminder
+);
 router.delete('/rojmed/entries/:id', verifyToken, requirePermission('rojmed:delete'), deleteRojmedEntry);
 
 export default router;
