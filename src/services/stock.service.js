@@ -905,13 +905,14 @@ class StockService {
 
     try {
       const [oRows] = await db.query(
-        'SELECT id, order_no, truck_chassis_no, owner_name, status FROM orders ORDER BY id DESC'
+        'SELECT id, order_no, truck_chassis_no, owner_name, shade_no, status FROM orders ORDER BY id DESC'
       );
       orders = oRows.map((o) => ({
         id: o.id,
         order_no: o.order_no || '',
         truck_chassis_no: o.truck_chassis_no || '',
         owner_name: o.owner_name || '',
+        shade_no: o.shade_no || '',
         status: o.status || '',
       }));
     } catch {
@@ -922,6 +923,7 @@ class StockService {
           order_no: o.order_no || '',
           truck_chassis_no: o.truck_chassis_no || '',
           owner_name: o.owner_name || '',
+          shade_no: o.shade_no || '',
           status: o.status || '',
         }));
       } catch {
