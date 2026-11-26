@@ -158,6 +158,11 @@ export const getUsageAnalytics = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, analytics, 'Stock usage analytics fetched successfully');
 });
 
+export const getIssueOptions = asyncHandler(async (req, res) => {
+  const options = await stockService.getIssueOptions();
+  return ApiResponse.success(res, options, 'Stock issue dropdown options fetched');
+});
+
 export const rateWorkerMaterial = asyncHandler(async (req, res) => {
   const { worker_id, rating, note } = req.body;
   try {

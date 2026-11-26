@@ -1,4 +1,6 @@
 import db from '../config/db.js';
+import { workerService } from './worker.service.js';
+import { orderService } from './order.service.js';
 
 /**
  * ====================================================================
@@ -883,6 +885,51 @@ class StockService {
       byOrder,
       byWorker,
     };
+  }
+
+  async getIssueOptions() {
+    let workers = [];
+    let orders = [];
+
+    try {
+      const [wRows] = await db.query('SELECT id, name FROM workers ORDER BY name ASC');
+      workers = wRows.map((w) => ({ id: w.id, name: w.name || '' }));
+    } catch {
+      try {
+        const list = await workerService.getAllWorkers();
+        workers = (list || []).map((w) => ({ id: w.id, name: w.name || '' }));
+      } catch {
+        workers = [];
+      }
+    }
+
+    try {
+      const [oRows] = await db.query(
+        'SELECT id, order_no, truck_chassis_no, owner_name, status FROM orders ORDER BY id DESC'
+      );
+      orders = oRows.map((o) => ({
+        id: o.id,
+        order_no: o.order_no || '',
+        truck_chassis_no: o.truck_chassis_no || '',
+        owner_name: o.owner_name || '',
+        status: o.status || '',
+      }));
+    } catch {
+      try {
+        const list = await orderService.getAllOrders();
+        orders = (list || []).map((o) => ({
+          id: o.id,
+          order_no: o.order_no || '',
+          truck_chassis_no: o.truck_chassis_no || '',
+          owner_name: o.owner_name || '',
+          status: o.status || '',
+        }));
+      } catch {
+        orders = [];
+      }
+    }
+
+    return { workers, orders };
   }
 
   async getStockSummary() {
