@@ -7,6 +7,7 @@ import {
   updateUpiAccount,
   deleteUpiAccount,
   createUpiRojmedEntry,
+  updateUpiRojmedEntry,
   deleteUpiRojmedEntry,
 } from '../controllers/upiRojmed.controller.js';
 import { verifyToken, requirePermission, requireAnyPermission } from '../middlewares/auth.middleware.js';
@@ -30,6 +31,7 @@ router.route('/upi-rojmed/accounts/:id')
   .delete(verifyToken, requirePermission('rojmed:delete'), deleteUpiAccount);
 
 router.post('/upi-rojmed/entries', verifyToken, requirePermission('rojmed:create'), createUpiRojmedEntry);
+router.put('/upi-rojmed/entries/:id', verifyToken, requirePermission('rojmed:edit'), updateUpiRojmedEntry);
 router.delete('/upi-rojmed/entries/:id', verifyToken, requirePermission('rojmed:delete'), deleteUpiRojmedEntry);
 
 export default router;

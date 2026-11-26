@@ -25,12 +25,20 @@ function getTodayDate() {
   return formatLocalDate(new Date());
 }
 
-const VALID_TYPES = ['upi_account', 'truck_account', 'vyapari_account', 'worker', 'general'];
+const VALID_TYPES = ['truck_account', 'vyapari_account', 'worker', 'general'];
 
 function formatTxRow(r) {
+  const inferredType =
+    r.entry_type === 'javak' || r.entry_type === 'aavak'
+      ? r.entry_type
+      : r.from_type === 'general' && r.to_type !== 'general'
+      ? 'javak'
+      : 'aavak';
+
   return {
     id: r.id,
     date: formatLocalDate(r.date),
+    entry_type: inferredType,
     amount: Number(r.amount) || 0,
     particulars: r.particulars || '',
     from_type: r.from_type || 'general',
@@ -49,152 +57,29 @@ function formatTxRow(r) {
 
 class UpiRojmedService {
   async getUpiAccounts() {
-    try {
-      const [accounts] = await db.query('SELECT * FROM upi_accounts ORDER BY id ASC');
-      const [inRows] = await db.query(
-        "SELECT to_id AS account_id, COALESCE(SUM(amount), 0) AS total_in FROM upi_transactions WHERE to_type = 'upi_account' AND to_id IS NOT NULL GROUP BY to_id"
-      );
-      const [outRows] = await db.query(
-        "SELECT from_id AS account_id, COALESCE(SUM(amount), 0) AS total_out FROM upi_transactions WHERE from_type = 'upi_account' AND from_id IS NOT NULL GROUP BY from_id"
-      );
-
-      const inMap = new Map(inRows.map((r) => [Number(r.account_id), Number(r.total_in) || 0]));
-      const outMap = new Map(outRows.map((r) => [Number(r.account_id), Number(r.total_out) || 0]));
-
-      return (accounts || []).map((a) => {
-        const opening = Number(a.opening_balance) || 0;
-        const totalIn = inMap.get(Number(a.id)) || 0;
-        const totalOut = outMap.get(Number(a.id)) || 0;
-        return {
-          id: a.id,
-          name: a.name,
-          upi_id: a.upi_id || '',
-          opening_balance: opening,
-          total_in: totalIn,
-          total_out: totalOut,
-          current_balance: Number((opening + totalIn - totalOut).toFixed(2)),
-          notes: a.notes || '',
-          created_at: a.created_at,
-        };
-      });
-    } catch (err) {
-      console.warn('⚠️ [UpiRojmedService getUpiAccounts DB Fallback]:', err.message);
-      return memoryUpiAccounts.map((a) => {
-        const opening = Number(a.opening_balance) || 0;
-        const totalIn = memoryUpiTransactions
-          .filter((t) => t.to_type === 'upi_account' && Number(t.to_id) === Number(a.id))
-          .reduce((s, t) => s + (Number(t.amount) || 0), 0);
-        const totalOut = memoryUpiTransactions
-          .filter((t) => t.from_type === 'upi_account' && Number(t.from_id) === Number(a.id))
-          .reduce((s, t) => s + (Number(t.amount) || 0), 0);
-        return {
-          ...a,
-          opening_balance: opening,
-          total_in: totalIn,
-          total_out: totalOut,
-          current_balance: Number((opening + totalIn - totalOut).toFixed(2)),
-        };
-      });
-    }
+    return memoryUpiAccounts;
   }
 
-  async createUpiAccount({ name, upi_id = '', opening_balance = 0, notes = '' }) {
-    const cleanName = (name || '').trim();
-    if (!cleanName) throw new Error('UPI Account name is required');
-    const cleanUpiId = (upi_id || '').trim() || null;
-    const cleanOpening = Number(opening_balance) || 0;
-    const cleanNotes = (notes || '').trim() || null;
-
-    try {
-      const [res] = await db.query(
-        'INSERT INTO upi_accounts (name, upi_id, opening_balance, notes) VALUES (?, ?, ?, ?)',
-        [cleanName, cleanUpiId, cleanOpening, cleanNotes]
-      );
-      const list = await this.getUpiAccounts();
-      return list.find((a) => a.id === res.insertId) || { id: res.insertId, name: cleanName };
-    } catch (err) {
-      console.warn('⚠️ [UpiRojmedService createUpiAccount DB Fallback]:', err.message);
-      const acc = {
-        id: nextUpiAccountId++,
-        name: cleanName,
-        upi_id: cleanUpiId || '',
-        opening_balance: cleanOpening,
-        notes: cleanNotes || '',
-        created_at: new Date().toISOString(),
-      };
-      memoryUpiAccounts.push(acc);
-      return { ...acc, total_in: 0, total_out: 0, current_balance: cleanOpening };
-    }
+  async createUpiAccount(data) {
+    return { id: nextUpiAccountId++, ...data };
   }
 
-  async updateUpiAccount(id, { name, upi_id = '', opening_balance = 0, notes = '' }) {
-    const numId = Number(id);
-    const cleanName = (name || '').trim();
-    if (!cleanName) throw new Error('UPI Account name is required');
-    const cleanUpiId = (upi_id || '').trim() || null;
-    const cleanOpening = Number(opening_balance) || 0;
-    const cleanNotes = (notes || '').trim() || null;
-
-    try {
-      await db.query(
-        'UPDATE upi_accounts SET name = ?, upi_id = ?, opening_balance = ?, notes = ? WHERE id = ?',
-        [cleanName, cleanUpiId, cleanOpening, cleanNotes, numId]
-      );
-      const list = await this.getUpiAccounts();
-      return list.find((a) => a.id === numId) || null;
-    } catch (err) {
-      console.warn('⚠️ [UpiRojmedService updateUpiAccount DB Fallback]:', err.message);
-      const idx = memoryUpiAccounts.findIndex((a) => a.id === numId);
-      if (idx === -1) return null;
-      memoryUpiAccounts[idx] = {
-        ...memoryUpiAccounts[idx],
-        name: cleanName,
-        upi_id: cleanUpiId || '',
-        opening_balance: cleanOpening,
-        notes: cleanNotes || '',
-      };
-      const list = await this.getUpiAccounts();
-      return list.find((a) => a.id === numId) || null;
-    }
+  async updateUpiAccount() {
+    return null;
   }
 
-  async deleteUpiAccount(id) {
-    const numId = Number(id);
-    try {
-      const [rows] = await db.query(
-        "SELECT COUNT(*) AS cnt FROM upi_transactions WHERE (from_type = 'upi_account' AND from_id = ?) OR (to_type = 'upi_account' AND to_id = ?)",
-        [numId, numId]
-      );
-      if (Number(rows[0]?.cnt) > 0) {
-        throw new Error('Cannot delete UPI account with existing transactions. Delete its entries first.');
-      }
-      await db.query('DELETE FROM upi_accounts WHERE id = ?', [numId]);
-      return { success: true, id: numId };
-    } catch (err) {
-      if (err.message.includes('Cannot delete UPI account')) throw err;
-      const hasTx = memoryUpiTransactions.some(
-        (t) =>
-          (t.from_type === 'upi_account' && Number(t.from_id) === numId) ||
-          (t.to_type === 'upi_account' && Number(t.to_id) === numId)
-      );
-      if (hasTx) {
-        throw new Error('Cannot delete UPI account with existing transactions.');
-      }
-      memoryUpiAccounts = memoryUpiAccounts.filter((a) => a.id !== numId);
-      return { success: true, id: numId };
-    }
+  async deleteUpiAccount() {
+    return { success: true };
   }
 
   async getUpiOptions() {
-    const [upiAccounts, workers, truckAccounts, vyapariAccounts] = await Promise.all([
-      this.getUpiAccounts().catch(() => []),
+    const [workers, truckAccounts, vyapariAccounts] = await Promise.all([
       workerService.getAllWorkers().catch(() => []),
       truckAccountService.getAllAccounts().catch(() => []),
       vyapariService.getAllAccounts().catch(() => []),
     ]);
 
     return {
-      upi_accounts: upiAccounts,
       workers: (workers || []).map((w) => ({ id: w.id, name: w.name, mobile: w.mobile || '' })),
       truck_accounts: (truckAccounts || []).map((t) => ({
         id: t.id,
@@ -213,53 +98,105 @@ class UpiRojmedService {
     };
   }
 
-  async getDailyUpiSheet(targetDateInput) {
-    const targetDate = formatLocalDate(targetDateInput) || getTodayDate();
-    const upiAccounts = await this.getUpiAccounts();
-    const totalUpiSilak = Number(
-      upiAccounts.reduce((sum, a) => sum + (Number(a.current_balance) || 0), 0).toFixed(2)
-    );
-
-    let entries = [];
-    try {
-      const [rows] = await db.query(
-        'SELECT * FROM upi_transactions WHERE date = ? ORDER BY id DESC',
-        [targetDate]
-      );
-      entries = (rows || []).map(formatTxRow);
-    } catch (err) {
-      console.warn('⚠️ [UpiRojmedService getDailySheet DB Fallback]:', err.message);
-      entries = memoryUpiTransactions
-        .filter((t) => t.date === targetDate)
-        .map(formatTxRow)
-        .sort((a, b) => b.id - a.id);
+  _getRowSides(r) {
+    const isFromGeneral = !r.from_type || r.from_type === 'general';
+    const isToGeneral = !r.to_type || r.to_type === 'general';
+    // If both From and To are specific Khata accounts, show From in Aavak AND To in Javak
+    if (!isFromGeneral && !isToGeneral) {
+      return { inAavak: true, inJavak: true, netDelta: 0 };
     }
+    if (!isFromGeneral && isToGeneral) {
+      return { inAavak: true, inJavak: false, netDelta: r.amount };
+    }
+    if (isFromGeneral && !isToGeneral) {
+      return { inAavak: false, inJavak: true, netDelta: -r.amount };
+    }
+    // Both General
+    if (r.entry_type === 'javak') {
+      return { inAavak: false, inJavak: true, netDelta: -r.amount };
+    }
+    return { inAavak: true, inJavak: false, netDelta: r.amount };
+  }
 
-    const dayIn = entries
-      .filter((e) => e.to_type === 'upi_account')
-      .reduce((s, e) => s + e.amount, 0);
-    const dayOut = entries
-      .filter((e) => e.from_type === 'upi_account')
-      .reduce((s, e) => s + e.amount, 0);
+  _buildDailySheet(targetDate, allRows) {
+    // Opening UPI Silak = net of entries strictly before targetDate
+    const beforeRows = allRows.filter((r) => r.date < targetDate);
+    const openingSilak = beforeRows.reduce((sum, r) => sum + this._getRowSides(r).netDelta, 0);
+
+    const dayRows = allRows.filter((r) => r.date === targetDate);
+    const aavakEntries = [];
+    const javakEntries = [];
+
+    dayRows.forEach((r) => {
+      const sides = this._getRowSides(r);
+      if (sides.inAavak) aavakEntries.push(r);
+      if (sides.inJavak) javakEntries.push(r);
+    });
+
+    const totalAavak = aavakEntries.reduce((s, e) => s + e.amount, 0);
+    const totalJavak = javakEntries.reduce((s, e) => s + e.amount, 0);
+    const totalAavakWithOpening = openingSilak + totalAavak;
+    const closingSilak = totalAavakWithOpening - totalJavak;
+
+    // Account-wise UPI money held: where money went TO that account (+) vs came FROM that account (-)
+    const heldMap = new Map();
+    const addHeld = (type, id, label, delta) => {
+      if (!type || type === 'general' || !id) return;
+      const key = `${type}:${id}`;
+      if (!heldMap.has(key)) {
+        heldMap.set(key, { type, id, label: label || `${type} #${id}`, balance: 0 });
+      }
+      heldMap.get(key).balance += delta;
+    };
+
+    allRows.forEach((r) => {
+      if (r.to_type !== 'general' && r.to_id) {
+        addHeld(r.to_type, r.to_id, r.to_label, r.amount);
+      }
+      if (r.from_type !== 'general' && r.from_id) {
+        addHeld(r.from_type, r.from_id, r.from_label, -r.amount);
+      }
+    });
+
+    const accountBalances = Array.from(heldMap.values())
+      .map((b) => ({ ...b, balance: Number(b.balance.toFixed(2)) }))
+      .filter((b) => b.balance !== 0)
+      .sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance));
 
     return {
       date: targetDate,
-      upi_accounts: upiAccounts,
-      total_upi_silak: totalUpiSilak,
-      day_total_in: Number(dayIn.toFixed(2)),
-      day_total_out: Number(dayOut.toFixed(2)),
-      entries,
+      opening_silak: Number(openingSilak.toFixed(2)),
+      aavak_entries: aavakEntries,
+      javak_entries: javakEntries,
+      total_aavak_entries: Number(totalAavak.toFixed(2)),
+      total_aavak_with_opening: Number(totalAavakWithOpening.toFixed(2)),
+      total_javak: Number(totalJavak.toFixed(2)),
+      closing_silak: Number(closingSilak.toFixed(2)),
+      account_balances: accountBalances,
+      total_entries_count: dayRows.length,
     };
   }
 
-  async _resolveEntityLabel(type, id) {
-    if (type === 'general' || !id) return 'General';
-    const numId = Number(id);
-    if (type === 'upi_account') {
-      const list = await this.getUpiAccounts();
-      const found = list.find((a) => Number(a.id) === numId);
-      return found ? `${found.name} (UPI)` : `UPI #${numId}`;
+  async getDailyUpiSheet(targetDateInput) {
+    const targetDate = formatLocalDate(targetDateInput) || getTodayDate();
+    let allRows = [];
+
+    try {
+      const [rows] = await db.query('SELECT * FROM upi_transactions ORDER BY date ASC, id ASC');
+      allRows = (rows || []).map(formatTxRow);
+    } catch (err) {
+      console.warn('⚠️ [UpiRojmedService getDailySheet DB Fallback]:', err.message);
+      allRows = memoryUpiTransactions
+        .map(formatTxRow)
+        .sort((a, b) => (a.date || '').localeCompare(b.date || '') || a.id - b.id);
     }
+
+    return this._buildDailySheet(targetDate, allRows);
+  }
+
+  async _resolveEntityLabel(type, id) {
+    if (type === 'general' || !id) return 'General (પોતાનું UPI)';
+    const numId = Number(id);
     if (type === 'truck_account') {
       const found = await truckAccountService.getAccountById(numId);
       if (!found) throw new Error('Selected Truck Account not found');
@@ -275,13 +212,11 @@ class UpiRojmedService {
       if (!found) throw new Error('Selected Worker not found');
       return found.name;
     }
-    return 'General';
+    return 'General (પોતાનું UPI)';
   }
 
   async _createSideLinkedEntry({ side, type, id, amount, date, particulars, notes }) {
-    if (!id || type === 'general' || type === 'upi_account') return null;
-    // side === 'from' -> party GAVE money -> Jama / Salary
-    // side === 'to' -> party RECEIVED money -> Udhar / Upad
+    if (!id || type === 'general') return null;
     const isFrom = side === 'from';
     const cleanNote = notes || particulars;
 
@@ -325,7 +260,7 @@ class UpiRojmedService {
   }
 
   async _deleteSideLinkedEntry(type, accountId, linkedTxId) {
-    if (!linkedTxId || !type || type === 'general' || type === 'upi_account') return;
+    if (!linkedTxId || !type || type === 'general') return;
     try {
       if (type === 'truck_account' && accountId) {
         await truckAccountService.deleteEntry(accountId, linkedTxId, { _skipRojmedSync: true });
@@ -346,6 +281,7 @@ class UpiRojmedService {
       throw new Error('Valid positive amount is required');
     }
 
+    const entryType = payload.entry_type === 'javak' ? 'javak' : 'aavak';
     const fromType = VALID_TYPES.includes(payload.from_type) ? payload.from_type : 'general';
     const toType = VALID_TYPES.includes(payload.to_type) ? payload.to_type : 'general';
     const fromId = fromType === 'general' ? null : (payload.from_id ? Number(payload.from_id) : null);
@@ -365,7 +301,8 @@ class UpiRojmedService {
     const toLabel = await this._resolveEntityLabel(toType, toId);
     const cleanNotes = (payload.notes || '').trim();
     const cleanParticulars =
-      (payload.particulars || '').trim() || `UPI: ${fromLabel} ➔ ${toLabel}`;
+      (payload.particulars || '').trim() ||
+      (entryType === 'aavak' ? `${fromLabel} ➔ ${toLabel}` : `${fromLabel} ➔ ${toLabel}`);
 
     const fromLinkedTxId = await this._createSideLinkedEntry({
       side: 'from',
@@ -373,7 +310,7 @@ class UpiRojmedService {
       id: fromId,
       amount: numAmount,
       date: cleanDate,
-      particulars: `${cleanParticulars} (To: ${toLabel})`,
+      particulars: cleanParticulars,
       notes: cleanNotes,
     });
 
@@ -383,18 +320,19 @@ class UpiRojmedService {
       id: toId,
       amount: numAmount,
       date: cleanDate,
-      particulars: `${cleanParticulars} (From: ${fromLabel})`,
+      particulars: cleanParticulars,
       notes: cleanNotes,
     });
 
     try {
       const [res] = await db.query(
         `INSERT INTO upi_transactions
-          (date, amount, particulars, from_type, from_id, from_label, from_linked_tx_id,
+          (date, entry_type, amount, particulars, from_type, from_id, from_label, from_linked_tx_id,
            to_type, to_id, to_label, to_linked_tx_id, notes, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           cleanDate,
+          entryType,
           numAmount,
           cleanParticulars,
           fromType,
@@ -416,6 +354,7 @@ class UpiRojmedService {
       const tx = {
         id: nextUpiTxId++,
         date: cleanDate,
+        entry_type: entryType,
         amount: numAmount,
         particulars: cleanParticulars,
         from_type: fromType,
@@ -433,6 +372,139 @@ class UpiRojmedService {
       memoryUpiTransactions.push(tx);
       const sheet = await this.getDailyUpiSheet(cleanDate);
       return { id: tx.id, sheet };
+    }
+  }
+
+  async updateUpiTransaction(id, payload) {
+    const numId = Number(id);
+    const cleanDate = formatLocalDate(payload.date) || getTodayDate();
+    const numAmount = Number(payload.amount);
+    if (!Number.isFinite(numAmount) || numAmount <= 0) {
+      throw new Error('Valid positive amount is required');
+    }
+
+    const entryType = payload.entry_type === 'javak' ? 'javak' : 'aavak';
+    const fromType = VALID_TYPES.includes(payload.from_type) ? payload.from_type : 'general';
+    const toType = VALID_TYPES.includes(payload.to_type) ? payload.to_type : 'general';
+    const fromId = fromType === 'general' ? null : (payload.from_id ? Number(payload.from_id) : null);
+    const toId = toType === 'general' ? null : (payload.to_id ? Number(payload.to_id) : null);
+
+    if (fromType !== 'general' && !fromId) throw new Error('Please select From account');
+    if (toType !== 'general' && !toId) throw new Error('Please select To account');
+    if (fromType !== 'general' && fromType === toType && fromId === toId) {
+      throw new Error('From and To accounts cannot be the same');
+    }
+
+    let existing = null;
+    try {
+      const [rows] = await db.query('SELECT * FROM upi_transactions WHERE id = ? LIMIT 1', [numId]);
+      if (!rows || rows.length === 0) return null;
+      existing = formatTxRow(rows[0]);
+
+      await this._deleteSideLinkedEntry(existing.from_type, existing.from_id, existing.from_linked_tx_id);
+      await this._deleteSideLinkedEntry(existing.to_type, existing.to_id, existing.to_linked_tx_id);
+
+      const fromLabel = await this._resolveEntityLabel(fromType, fromId);
+      const toLabel = await this._resolveEntityLabel(toType, toId);
+      const cleanNotes = (payload.notes || '').trim();
+      const cleanParticulars = (payload.particulars || '').trim() || `${fromLabel} ➔ ${toLabel}`;
+
+      const fromLinkedTxId = await this._createSideLinkedEntry({
+        side: 'from',
+        type: fromType,
+        id: fromId,
+        amount: numAmount,
+        date: cleanDate,
+        particulars: cleanParticulars,
+        notes: cleanNotes,
+      });
+
+      const toLinkedTxId = await this._createSideLinkedEntry({
+        side: 'to',
+        type: toType,
+        id: toId,
+        amount: numAmount,
+        date: cleanDate,
+        particulars: cleanParticulars,
+        notes: cleanNotes,
+      });
+
+      await db.query(
+        `UPDATE upi_transactions
+         SET date = ?, entry_type = ?, amount = ?, particulars = ?,
+             from_type = ?, from_id = ?, from_label = ?, from_linked_tx_id = ?,
+             to_type = ?, to_id = ?, to_label = ?, to_linked_tx_id = ?, notes = ?
+         WHERE id = ?`,
+        [
+          cleanDate,
+          entryType,
+          numAmount,
+          cleanParticulars,
+          fromType,
+          fromId,
+          fromLabel,
+          fromLinkedTxId,
+          toType,
+          toId,
+          toLabel,
+          toLinkedTxId,
+          cleanNotes || null,
+          numId,
+        ]
+      );
+
+      const sheet = await this.getDailyUpiSheet(cleanDate);
+      return { id: numId, sheet };
+    } catch (err) {
+      console.warn('⚠️ [UpiRojmedService updateTx DB Fallback]:', err.message);
+      const idx = memoryUpiTransactions.findIndex((t) => t.id === numId);
+      if (idx === -1) return null;
+      existing = memoryUpiTransactions[idx];
+      await this._deleteSideLinkedEntry(existing.from_type, existing.from_id, existing.from_linked_tx_id);
+      await this._deleteSideLinkedEntry(existing.to_type, existing.to_id, existing.to_linked_tx_id);
+
+      const fromLabel = await this._resolveEntityLabel(fromType, fromId);
+      const toLabel = await this._resolveEntityLabel(toType, toId);
+      const cleanNotes = (payload.notes || '').trim();
+      const cleanParticulars = (payload.particulars || '').trim() || `${fromLabel} ➔ ${toLabel}`;
+
+      const fromLinkedTxId = await this._createSideLinkedEntry({
+        side: 'from',
+        type: fromType,
+        id: fromId,
+        amount: numAmount,
+        date: cleanDate,
+        particulars: cleanParticulars,
+        notes: cleanNotes,
+      });
+      const toLinkedTxId = await this._createSideLinkedEntry({
+        side: 'to',
+        type: toType,
+        id: toId,
+        amount: numAmount,
+        date: cleanDate,
+        particulars: cleanParticulars,
+        notes: cleanNotes,
+      });
+
+      memoryUpiTransactions[idx] = {
+        ...existing,
+        date: cleanDate,
+        entry_type: entryType,
+        amount: numAmount,
+        particulars: cleanParticulars,
+        from_type: fromType,
+        from_id: fromId,
+        from_label: fromLabel,
+        from_linked_tx_id: fromLinkedTxId,
+        to_type: toType,
+        to_id: toId,
+        to_label: toLabel,
+        to_linked_tx_id: toLinkedTxId,
+        notes: cleanNotes,
+      };
+      const sheet = await this.getDailyUpiSheet(cleanDate);
+      return { id: numId, sheet };
     }
   }
 

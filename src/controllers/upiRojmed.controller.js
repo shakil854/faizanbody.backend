@@ -56,6 +56,16 @@ export const createUpiRojmedEntry = asyncHandler(async (req, res) => {
   }
 });
 
+export const updateUpiRojmedEntry = asyncHandler(async (req, res) => {
+  try {
+    const result = await upiRojmedService.updateUpiTransaction(req.params.id, req.body || {});
+    if (!result) throw ApiError.notFound('UPI transaction not found');
+    return ApiResponse.success(res, result, 'UPI entry updated successfully');
+  } catch (err) {
+    throw ApiError.badRequest(err.message);
+  }
+});
+
 export const deleteUpiRojmedEntry = asyncHandler(async (req, res) => {
   const result = await upiRojmedService.deleteUpiTransaction(req.params.id);
   if (!result) throw ApiError.notFound('UPI transaction not found');

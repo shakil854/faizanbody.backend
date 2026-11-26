@@ -31,6 +31,7 @@ export const UpiTransactionModel = {
   columns: {
     id: 'INT AUTO_INCREMENT PRIMARY KEY',
     date: 'DATE NOT NULL',
+    entry_type: "VARCHAR(20) NOT NULL DEFAULT 'aavak'",
     amount: 'DECIMAL(12, 2) NOT NULL',
     particulars: 'VARCHAR(255) NOT NULL',
     from_type: "VARCHAR(30) NOT NULL DEFAULT 'general'",
