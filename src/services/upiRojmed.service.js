@@ -98,65 +98,46 @@ class UpiRojmedService {
     };
   }
 
-  _getRowSides(r) {
-    const isFromGeneral = !r.from_type || r.from_type === 'general';
-    const isToGeneral = !r.to_type || r.to_type === 'general';
-    // If both From and To are specific Khata accounts, show From in Aavak AND To in Javak
-    if (!isFromGeneral && !isToGeneral) {
-      return { inAavak: true, inJavak: true, netDelta: 0 };
-    }
-    if (!isFromGeneral && isToGeneral) {
-      return { inAavak: true, inJavak: false, netDelta: r.amount };
-    }
-    if (isFromGeneral && !isToGeneral) {
-      return { inAavak: false, inJavak: true, netDelta: -r.amount };
-    }
-    // Both General
-    if (r.entry_type === 'javak') {
-      return { inAavak: false, inJavak: true, netDelta: -r.amount };
-    }
-    return { inAavak: true, inJavak: false, netDelta: r.amount };
-  }
-
   _buildDailySheet(targetDate, allRows) {
-    // Opening UPI Silak = net of entries strictly before targetDate
+    // Opening UPI Silak = net of entries strictly before targetDate (aavak = +amount, javak = -amount)
     const beforeRows = allRows.filter((r) => r.date < targetDate);
-    const openingSilak = beforeRows.reduce((sum, r) => sum + this._getRowSides(r).netDelta, 0);
+    const openingSilak = beforeRows.reduce(
+      (sum, r) => sum + (r.entry_type === 'javak' ? -r.amount : r.amount),
+      0
+    );
 
     const dayRows = allRows.filter((r) => r.date === targetDate);
-    const aavakEntries = [];
-    const javakEntries = [];
-
-    dayRows.forEach((r) => {
-      const sides = this._getRowSides(r);
-      if (sides.inAavak) aavakEntries.push(r);
-      if (sides.inJavak) javakEntries.push(r);
-    });
+    const aavakEntries = dayRows.filter((r) => r.entry_type !== 'javak');
+    const javakEntries = dayRows.filter((r) => r.entry_type === 'javak');
 
     const totalAavak = aavakEntries.reduce((s, e) => s + e.amount, 0);
     const totalJavak = javakEntries.reduce((s, e) => s + e.amount, 0);
     const totalAavakWithOpening = openingSilak + totalAavak;
     const closingSilak = totalAavakWithOpening - totalJavak;
 
-    // Account-wise UPI money held: where money went TO that account (+) vs came FROM that account (-)
+    // Account-wise UPI money held:
+    // - On AAVAK: money goes INTO `to` account (+amount)
+    // - On JAVAK: money goes OUT OF `from` account (-amount)
     const heldMap = new Map();
     const addHeld = (type, id, label, delta) => {
-      if (!type || type === 'general' || !id) return;
-      const key = `${type}:${id}`;
+      const cleanType = type || 'general';
+      const key = cleanType === 'general' ? 'general:0' : `${cleanType}:${id}`;
+      const cleanLabel = cleanType === 'general' ? 'પોતાનું UPI (General)' : (label || `${cleanType} #${id}`);
       if (!heldMap.has(key)) {
-        heldMap.set(key, { type, id, label: label || `${type} #${id}`, balance: 0 });
+        heldMap.set(key, { type: cleanType, id: cleanType === 'general' ? 0 : id, label: cleanLabel, balance: 0 });
       }
       heldMap.get(key).balance += delta;
     };
 
-    allRows.forEach((r) => {
-      if (r.to_type !== 'general' && r.to_id) {
-        addHeld(r.to_type, r.to_id, r.to_label, r.amount);
-      }
-      if (r.from_type !== 'general' && r.from_id) {
-        addHeld(r.from_type, r.from_id, r.from_label, -r.amount);
-      }
-    });
+    allRows
+      .filter((r) => r.date <= targetDate)
+      .forEach((r) => {
+        if (r.entry_type === 'javak') {
+          addHeld(r.from_type, r.from_id, r.from_label, -r.amount);
+        } else {
+          addHeld(r.to_type, r.to_id, r.to_label, r.amount);
+        }
+      });
 
     const accountBalances = Array.from(heldMap.values())
       .map((b) => ({ ...b, balance: Number(b.balance.toFixed(2)) }))
@@ -304,25 +285,33 @@ class UpiRojmedService {
       (payload.particulars || '').trim() ||
       (entryType === 'aavak' ? `${fromLabel} ➔ ${toLabel}` : `${fromLabel} ➔ ${toLabel}`);
 
-    const fromLinkedTxId = await this._createSideLinkedEntry({
-      side: 'from',
-      type: fromType,
-      id: fromId,
-      amount: numAmount,
-      date: cleanDate,
-      particulars: cleanParticulars,
-      notes: cleanNotes,
-    });
+    // On AAVAK: only `from` (who paid us) gets a Jama entry in their Khata; `to` holds our UPI balance.
+    // On JAVAK: only `to` (who we paid) gets an Udhar/Upad entry in their Khata; `from` deducts from held UPI balance.
+    const fromLinkedTxId =
+      entryType === 'aavak'
+        ? await this._createSideLinkedEntry({
+            side: 'from',
+            type: fromType,
+            id: fromId,
+            amount: numAmount,
+            date: cleanDate,
+            particulars: cleanParticulars,
+            notes: cleanNotes,
+          })
+        : null;
 
-    const toLinkedTxId = await this._createSideLinkedEntry({
-      side: 'to',
-      type: toType,
-      id: toId,
-      amount: numAmount,
-      date: cleanDate,
-      particulars: cleanParticulars,
-      notes: cleanNotes,
-    });
+    const toLinkedTxId =
+      entryType === 'javak'
+        ? await this._createSideLinkedEntry({
+            side: 'to',
+            type: toType,
+            id: toId,
+            amount: numAmount,
+            date: cleanDate,
+            particulars: cleanParticulars,
+            notes: cleanNotes,
+          })
+        : null;
 
     try {
       const [res] = await db.query(
@@ -409,25 +398,31 @@ class UpiRojmedService {
       const cleanNotes = (payload.notes || '').trim();
       const cleanParticulars = (payload.particulars || '').trim() || `${fromLabel} ➔ ${toLabel}`;
 
-      const fromLinkedTxId = await this._createSideLinkedEntry({
-        side: 'from',
-        type: fromType,
-        id: fromId,
-        amount: numAmount,
-        date: cleanDate,
-        particulars: cleanParticulars,
-        notes: cleanNotes,
-      });
+      const fromLinkedTxId =
+        entryType === 'aavak'
+          ? await this._createSideLinkedEntry({
+              side: 'from',
+              type: fromType,
+              id: fromId,
+              amount: numAmount,
+              date: cleanDate,
+              particulars: cleanParticulars,
+              notes: cleanNotes,
+            })
+          : null;
 
-      const toLinkedTxId = await this._createSideLinkedEntry({
-        side: 'to',
-        type: toType,
-        id: toId,
-        amount: numAmount,
-        date: cleanDate,
-        particulars: cleanParticulars,
-        notes: cleanNotes,
-      });
+      const toLinkedTxId =
+        entryType === 'javak'
+          ? await this._createSideLinkedEntry({
+              side: 'to',
+              type: toType,
+              id: toId,
+              amount: numAmount,
+              date: cleanDate,
+              particulars: cleanParticulars,
+              notes: cleanNotes,
+            })
+          : null;
 
       await db.query(
         `UPDATE upi_transactions
@@ -468,24 +463,30 @@ class UpiRojmedService {
       const cleanNotes = (payload.notes || '').trim();
       const cleanParticulars = (payload.particulars || '').trim() || `${fromLabel} ➔ ${toLabel}`;
 
-      const fromLinkedTxId = await this._createSideLinkedEntry({
-        side: 'from',
-        type: fromType,
-        id: fromId,
-        amount: numAmount,
-        date: cleanDate,
-        particulars: cleanParticulars,
-        notes: cleanNotes,
-      });
-      const toLinkedTxId = await this._createSideLinkedEntry({
-        side: 'to',
-        type: toType,
-        id: toId,
-        amount: numAmount,
-        date: cleanDate,
-        particulars: cleanParticulars,
-        notes: cleanNotes,
-      });
+      const fromLinkedTxId =
+        entryType === 'aavak'
+          ? await this._createSideLinkedEntry({
+              side: 'from',
+              type: fromType,
+              id: fromId,
+              amount: numAmount,
+              date: cleanDate,
+              particulars: cleanParticulars,
+              notes: cleanNotes,
+            })
+          : null;
+      const toLinkedTxId =
+        entryType === 'javak'
+          ? await this._createSideLinkedEntry({
+              side: 'to',
+              type: toType,
+              id: toId,
+              amount: numAmount,
+              date: cleanDate,
+              particulars: cleanParticulars,
+              notes: cleanNotes,
+            })
+          : null;
 
       memoryUpiTransactions[idx] = {
         ...existing,
