@@ -7,6 +7,7 @@ import {
   StockCategoryModel,
   StockItemModel,
   StockTransactionModel,
+  StockWorkerRatingModel,
 } from './stock.model.js';
 import { SettingModel } from './setting.model.js';
 import { SessionModel } from './session.model.js';
@@ -14,6 +15,7 @@ import { QuotationModel, QuotationCatalogItemModel } from './quotation.model.js'
 import { TruckAccountModel, TruckAccountEntryModel } from './truckAccount.model.js';
 import { VyapariAccountModel, VyapariAccountEntryModel } from './vyapari.model.js';
 import { RojmedEntryModel, RojmedOpeningModel } from './rojmed.model.js';
+import { UpiAccountModel, UpiTransactionModel } from './upiRojmed.model.js';
 
 export const models = [
   WorkerModel,
@@ -24,6 +26,7 @@ export const models = [
   StockCategoryModel,
   StockItemModel,
   StockTransactionModel,
+  StockWorkerRatingModel,
   SettingModel,
   SessionModel,
   QuotationModel,
@@ -34,6 +37,8 @@ export const models = [
   VyapariAccountEntryModel,
   RojmedEntryModel,
   RojmedOpeningModel,
+  UpiAccountModel,
+  UpiTransactionModel,
 ];
 
 export {
@@ -45,6 +50,7 @@ export {
   StockCategoryModel,
   StockItemModel,
   StockTransactionModel,
+  StockWorkerRatingModel,
   SettingModel,
   SessionModel,
   QuotationModel,
@@ -55,6 +61,8 @@ export {
   VyapariAccountEntryModel,
   RojmedEntryModel,
   RojmedOpeningModel,
+  UpiAccountModel,
+  UpiTransactionModel,
 };
 
 export default models;
