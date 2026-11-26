@@ -126,8 +126,8 @@ export const adjustStock = asyncHandler(async (req, res) => {
     truck_chassis_no,
   } = req.body;
 
-  if (!type || !['IN', 'OUT', 'ADJUSTMENT'].includes(type.toUpperCase())) {
-    throw ApiError.badRequest('Valid type (IN, OUT, or ADJUSTMENT) is required');
+  if (!type || !['IN', 'OUT', 'RETURN', 'ADJUSTMENT'].includes(type.toUpperCase())) {
+    throw ApiError.badRequest('Valid type (IN, OUT, RETURN, or ADJUSTMENT) is required');
   }
 
   if (quantity === undefined || quantity === null || isNaN(Number(quantity))) {

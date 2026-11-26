@@ -478,7 +478,7 @@ class StockService {
     let newQty = prevQty;
     const upperType = (type || 'IN').toUpperCase();
 
-    if (upperType === 'IN') {
+    if (upperType === 'IN' || upperType === 'RETURN') {
       newQty = prevQty + adjQty;
     } else if (upperType === 'OUT') {
       if (adjQty > prevQty) {
@@ -488,16 +488,17 @@ class StockService {
     } else if (upperType === 'ADJUSTMENT') {
       newQty = parseFloat(quantity) || 0;
     } else {
-      throw new Error('Invalid transaction type. Must be IN, OUT, or ADJUSTMENT.');
+      throw new Error('Invalid transaction type. Must be IN, OUT, RETURN, or ADJUSTMENT.');
     }
 
     const txDate = formatDate(date);
     const refNote = (reference_note || '').trim();
-    const cleanWorkerId = upperType === 'OUT' && worker_id ? Number(worker_id) : null;
-    const cleanWorkerName = upperType === 'OUT' && worker_name ? String(worker_name).trim() : null;
-    const cleanOrderId = upperType === 'OUT' && order_id ? Number(order_id) : null;
-    const cleanOrderNo = upperType === 'OUT' && order_no ? String(order_no).trim() : null;
-    const cleanTruckNo = upperType === 'OUT' && truck_chassis_no ? String(truck_chassis_no).trim() : null;
+    const keepTracking = upperType === 'OUT' || upperType === 'RETURN';
+    const cleanWorkerId = keepTracking && worker_id ? Number(worker_id) : null;
+    const cleanWorkerName = keepTracking && worker_name ? String(worker_name).trim() : null;
+    const cleanOrderId = keepTracking && order_id ? Number(order_id) : null;
+    const cleanOrderNo = keepTracking && order_no ? String(order_no).trim() : null;
+    const cleanTruckNo = keepTracking && truck_chassis_no ? String(truck_chassis_no).trim() : null;
 
     try {
       // 1. Update stock item quantity
@@ -700,7 +701,7 @@ class StockService {
     let ratingMap = new Map();
 
     try {
-      const conditions = ["t.type = 'OUT'"];
+      const conditions = ["t.type IN ('OUT', 'RETURN')"];
       const params = [];
       if (workerId) {
         conditions.push('t.worker_id = ?');
@@ -722,6 +723,7 @@ class StockService {
       const [rows] = await db.query(sql, params);
       outRows = rows.map((r) => ({
         id: r.id,
+        type: r.type || 'OUT',
         item_id: r.item_id,
         item_name: r.item_name || 'Unknown Item',
         category_name: r.category_name || '',
@@ -751,13 +753,14 @@ class StockService {
     } catch (err) {
       console.warn('⚠️ [StockService Usage DB Warning - Using Memory Store]:', err.message);
       outRows = memoryTransactions
-        .filter((t) => t.type === 'OUT')
+        .filter((t) => t.type === 'OUT' || t.type === 'RETURN')
         .filter((t) => (!workerId || Number(t.worker_id) === Number(workerId)))
         .filter((t) => (!orderId || Number(t.order_id) === Number(orderId)))
         .map((t) => {
           const item = memoryItems.find((i) => i.id === t.item_id);
           return {
             id: t.id,
+            type: t.type || 'OUT',
             item_id: t.item_id,
             item_name: item ? item.name : 'Unknown Item',
             category_name: item ? item.category_name : '',
@@ -784,7 +787,9 @@ class StockService {
     const workerMap = new Map();
 
     for (const tx of outRows) {
-      const estValue = tx.quantity * (tx.unit_price || 0);
+      const sign = tx.type === 'RETURN' ? -1 : 1;
+      const signedQty = sign * tx.quantity;
+      const estValue = sign * tx.quantity * (tx.unit_price || 0);
 
       if (tx.order_id || tx.order_no || tx.truck_chassis_no) {
         const oKey = tx.order_id ? `id:${tx.order_id}` : `no:${tx.order_no || tx.truck_chassis_no}`;
@@ -801,9 +806,9 @@ class StockService {
           });
         }
         const og = orderMap.get(oKey);
-        og.total_quantity += tx.quantity;
-        og.total_value += estValue;
-        og.tx_count += 1;
+        og.total_quantity = Math.max(0, og.total_quantity + signedQty);
+        og.total_value = Math.max(0, og.total_value + estValue);
+        if (tx.type === 'OUT') og.tx_count += 1;
         if (tx.worker_name) og.workers.add(tx.worker_name);
         og.items.push(tx);
       }
@@ -822,9 +827,9 @@ class StockService {
           });
         }
         const wg = workerMap.get(wKey);
-        wg.total_quantity += tx.quantity;
-        wg.total_value += estValue;
-        wg.tx_count += 1;
+        wg.total_quantity = Math.max(0, wg.total_quantity + signedQty);
+        wg.total_value = Math.max(0, wg.total_value + estValue);
+        if (tx.type === 'OUT') wg.tx_count += 1;
         if (tx.order_id || tx.order_no || tx.truck_chassis_no) {
           wg.order_keys.add(tx.order_id ? `id:${tx.order_id}` : `${tx.order_no}:${tx.truck_chassis_no}`);
         }
