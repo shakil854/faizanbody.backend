@@ -59,6 +59,13 @@ export const deleteVyapariAccount = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, { id: Number(id) }, 'Vyapari account deleted successfully');
 });
 
+export const setVyapariAccountReminder = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { reminder_date, reminder_note } = req.body;
+  const account = await vyapariService.setAccountReminder(id, { reminder_date, reminder_note });
+  return ApiResponse.success(res, account, reminder_date ? 'Reminder set successfully' : 'Reminder cleared');
+});
+
 export const addVyapariAccountEntry = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { type, amount, date, particulars, payment_mode, add_to_rojmed, bill_no, stock_item_id, stock_qty } = req.body;

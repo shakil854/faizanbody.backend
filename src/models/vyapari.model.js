@@ -16,6 +16,8 @@ export const VyapariAccountModel = {
     address: 'VARCHAR(255) NULL',
     page_no: 'INT NULL',
     current_cycle: 'INT NOT NULL DEFAULT 1',
+    reminder_date: 'DATE NULL',
+    reminder_note: 'VARCHAR(255) NULL',
     notes: 'TEXT NULL',
     created_at: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
     updated_at: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',

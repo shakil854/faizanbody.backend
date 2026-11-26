@@ -10,6 +10,7 @@ import {
   deleteVyapariAccountEntry,
   settleVyapariAccountCycle,
   reopenVyapariAccountCycle,
+  setVyapariAccountReminder,
 } from '../controllers/vyapari.controller.js';
 import { verifyToken, requirePermission, requireAnyPermission } from '../middlewares/auth.middleware.js';
 
@@ -36,5 +37,6 @@ router.route('/vyapari-accounts/:id/entries/:entryId')
 // Vyapari Account Cycles (Settle / Reopen - Gated by vyapari:khata)
 router.post('/vyapari-accounts/:id/settle-cycle', verifyToken, requirePermission('vyapari:khata'), settleVyapariAccountCycle);
 router.post('/vyapari-accounts/:id/reopen-cycle', verifyToken, requirePermission('vyapari:khata'), reopenVyapariAccountCycle);
+router.put('/vyapari-accounts/:id/reminder', verifyToken, requireAnyPermission('vyapari:khata', 'vyapari:edit'), setVyapariAccountReminder);
 
 export default router;

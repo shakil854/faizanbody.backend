@@ -41,7 +41,7 @@ class TruckAccountService {
     try {
       let sql = `
         SELECT 
-          a.id, a.party_name, a.truck_no, a.phone, a.address, a.page_no, a.current_cycle, a.notes, a.created_at,
+          a.id, a.party_name, a.truck_no, a.phone, a.address, a.page_no, a.current_cycle, a.reminder_date, a.reminder_note, a.notes, a.created_at,
           COALESCE(SUM(CASE WHEN e.type = 'jama' AND (e.is_settled IS NULL OR e.is_settled = 0) THEN e.amount ELSE 0 END), 0) AS total_jama,
           COALESCE(SUM(CASE WHEN e.type = 'udhar' AND (e.is_settled IS NULL OR e.is_settled = 0) THEN e.amount ELSE 0 END), 0) AS total_udhar,
           COALESCE(SUM(CASE WHEN e.type = 'jama' THEN e.amount ELSE 0 END), 0) AS all_time_jama,
@@ -77,6 +77,8 @@ class TruckAccountService {
           address: a.address || '',
           page_no: a.page_no !== null && a.page_no !== undefined ? Number(a.page_no) : null,
           current_cycle: Number(a.current_cycle) || 1,
+          reminder_date: a.reminder_date ? String(a.reminder_date).split('T')[0] : '',
+          reminder_note: a.reminder_note || '',
           notes: a.notes || '',
           created_at: a.created_at,
           total_jama: totalJama,
@@ -170,6 +172,8 @@ class TruckAccountService {
         ...account,
         page_no: account.page_no !== null ? Number(account.page_no) : null,
         current_cycle: Number(account.current_cycle) || 1,
+        reminder_date: account.reminder_date ? String(account.reminder_date).split('T')[0] : '',
+        reminder_note: account.reminder_note || '',
         entries: formattedEntries,
         summary: {
           total_jama: totalJama,
@@ -285,6 +289,34 @@ class TruckAccountService {
           address: address !== undefined ? address : memoryTruckAccounts[idx].address,
           page_no: page_no !== undefined ? Number(page_no) : memoryTruckAccounts[idx].page_no,
           notes: notes !== undefined ? notes : memoryTruckAccounts[idx].notes,
+        };
+      }
+      return this.getAccountById(numId);
+    }
+  }
+
+  /**
+   * Set or clear reminder date & note for a truck account
+   */
+  async setAccountReminder(id, { reminder_date = null, reminder_note = '' } = {}) {
+    const numId = Number(id);
+    const cleanDate = reminder_date && String(reminder_date).trim() ? String(reminder_date).split('T')[0].trim() : null;
+    const cleanNote = reminder_note && String(reminder_note).trim() ? String(reminder_note).trim() : null;
+
+    try {
+      await db.query(
+        'UPDATE truck_accounts SET reminder_date = ?, reminder_note = ? WHERE id = ?',
+        [cleanDate, cleanNote, numId]
+      );
+      return this.getAccountById(numId);
+    } catch (err) {
+      console.warn('⚠️ [TruckAccountService setReminder DB Fallback]:', err.message);
+      const idx = memoryTruckAccounts.findIndex((a) => a.id === numId);
+      if (idx !== -1) {
+        memoryTruckAccounts[idx] = {
+          ...memoryTruckAccounts[idx],
+          reminder_date: cleanDate || '',
+          reminder_note: cleanNote || '',
         };
       }
       return this.getAccountById(numId);

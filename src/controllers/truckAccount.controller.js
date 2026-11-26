@@ -59,6 +59,13 @@ export const deleteTruckAccount = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, { id: Number(id) }, 'Truck account deleted successfully');
 });
 
+export const setTruckAccountReminder = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { reminder_date, reminder_note } = req.body;
+  const account = await truckAccountService.setAccountReminder(id, { reminder_date, reminder_note });
+  return ApiResponse.success(res, account, reminder_date ? 'Reminder set successfully' : 'Reminder cleared');
+});
+
 export const addTruckAccountEntry = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { type, amount, date, particulars, payment_mode, add_to_rojmed } = req.body;
