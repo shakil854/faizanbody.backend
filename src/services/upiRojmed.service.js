@@ -48,6 +48,7 @@ function formatTxRow(r) {
     to_type: r.to_type || 'general',
     to_id: r.to_id ? Number(r.to_id) : null,
     to_label: r.to_label || 'General',
+    to_mode: r.to_mode || (inferredType === 'aavak' ? 'balance' : 'khata'),
     to_linked_tx_id: r.to_linked_tx_id ? Number(r.to_linked_tx_id) : null,
     notes: r.notes || '',
     created_by: r.created_by || null,
@@ -98,26 +99,34 @@ class UpiRojmedService {
     };
   }
 
+  _isBalanceTransfer(r) {
+    return r.entry_type === 'javak' && r.to_type !== 'general' && r.to_mode === 'balance';
+  }
+
   _buildDailySheet(targetDate, allRows) {
-    // Opening UPI Silak = net of entries strictly before targetDate (aavak = +amount, javak = -amount)
+    // Opening UPI Silak: aavak (+amount), javak paid out (-amount), internal balance transfer (0 net)
     const beforeRows = allRows.filter((r) => r.date < targetDate);
-    const openingSilak = beforeRows.reduce(
-      (sum, r) => sum + (r.entry_type === 'javak' ? -r.amount : r.amount),
-      0
-    );
+    const openingSilak = beforeRows.reduce((sum, r) => {
+      if (this._isBalanceTransfer(r)) return sum;
+      return sum + (r.entry_type === 'javak' ? -r.amount : r.amount);
+    }, 0);
 
     const dayRows = allRows.filter((r) => r.date === targetDate);
     const aavakEntries = dayRows.filter((r) => r.entry_type !== 'javak');
     const javakEntries = dayRows.filter((r) => r.entry_type === 'javak');
 
     const totalAavak = aavakEntries.reduce((s, e) => s + e.amount, 0);
-    const totalJavak = javakEntries.reduce((s, e) => s + e.amount, 0);
+    // Only actual paid-out javak entries reduce Total UPI Silak (balance transfers stay inside our UPI Silak)
+    const totalJavakPaid = javakEntries
+      .filter((e) => !this._isBalanceTransfer(e))
+      .reduce((s, e) => s + e.amount, 0);
     const totalAavakWithOpening = openingSilak + totalAavak;
-    const closingSilak = totalAavakWithOpening - totalJavak;
+    const closingSilak = totalAavakWithOpening - totalJavakPaid;
 
     // Account-wise UPI money held:
     // - On AAVAK: money goes INTO `to` account (+amount)
-    // - On JAVAK: money goes OUT OF `from` account (-amount)
+    // - On JAVAK (paid to Khata / General): money goes OUT OF `from` account (-amount)
+    // - On JAVAK (kept as UPI Balance): moves from `from` (-amount) to `to` (+amount)
     const heldMap = new Map();
     const addHeld = (type, id, label, delta) => {
       const cleanType = type || 'general';
@@ -134,6 +143,9 @@ class UpiRojmedService {
       .forEach((r) => {
         if (r.entry_type === 'javak') {
           addHeld(r.from_type, r.from_id, r.from_label, -r.amount);
+          if (this._isBalanceTransfer(r)) {
+            addHeld(r.to_type, r.to_id, r.to_label, r.amount);
+          }
         } else {
           addHeld(r.to_type, r.to_id, r.to_label, r.amount);
         }
@@ -151,7 +163,7 @@ class UpiRojmedService {
       javak_entries: javakEntries,
       total_aavak_entries: Number(totalAavak.toFixed(2)),
       total_aavak_with_opening: Number(totalAavakWithOpening.toFixed(2)),
-      total_javak: Number(totalJavak.toFixed(2)),
+      total_javak: Number(totalJavakPaid.toFixed(2)),
       closing_silak: Number(closingSilak.toFixed(2)),
       account_balances: accountBalances,
       total_entries_count: dayRows.length,
@@ -265,6 +277,7 @@ class UpiRojmedService {
     const entryType = payload.entry_type === 'javak' ? 'javak' : 'aavak';
     const fromType = VALID_TYPES.includes(payload.from_type) ? payload.from_type : 'general';
     const toType = VALID_TYPES.includes(payload.to_type) ? payload.to_type : 'general';
+    const toMode = payload.to_mode === 'balance' ? 'balance' : 'khata';
     const fromId = fromType === 'general' ? null : (payload.from_id ? Number(payload.from_id) : null);
     const toId = toType === 'general' ? null : (payload.to_id ? Number(payload.to_id) : null);
 
@@ -301,7 +314,7 @@ class UpiRojmedService {
         : null;
 
     const toLinkedTxId =
-      entryType === 'javak'
+      toMode === 'khata'
         ? await this._createSideLinkedEntry({
             side: 'to',
             type: toType,
@@ -317,8 +330,8 @@ class UpiRojmedService {
       const [res] = await db.query(
         `INSERT INTO upi_transactions
           (date, entry_type, amount, particulars, from_type, from_id, from_label, from_linked_tx_id,
-           to_type, to_id, to_label, to_linked_tx_id, notes, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           to_type, to_id, to_label, to_mode, to_linked_tx_id, notes, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           cleanDate,
           entryType,
@@ -331,6 +344,7 @@ class UpiRojmedService {
           toType,
           toId,
           toLabel,
+          toMode,
           toLinkedTxId,
           cleanNotes || null,
           userId,
@@ -353,6 +367,7 @@ class UpiRojmedService {
         to_type: toType,
         to_id: toId,
         to_label: toLabel,
+        to_mode: toMode,
         to_linked_tx_id: toLinkedTxId,
         notes: cleanNotes,
         created_by: userId,
@@ -375,6 +390,7 @@ class UpiRojmedService {
     const entryType = payload.entry_type === 'javak' ? 'javak' : 'aavak';
     const fromType = VALID_TYPES.includes(payload.from_type) ? payload.from_type : 'general';
     const toType = VALID_TYPES.includes(payload.to_type) ? payload.to_type : 'general';
+    const toMode = payload.to_mode === 'balance' ? 'balance' : 'khata';
     const fromId = fromType === 'general' ? null : (payload.from_id ? Number(payload.from_id) : null);
     const toId = toType === 'general' ? null : (payload.to_id ? Number(payload.to_id) : null);
 
@@ -412,7 +428,7 @@ class UpiRojmedService {
           : null;
 
       const toLinkedTxId =
-        entryType === 'javak'
+        toMode === 'khata'
           ? await this._createSideLinkedEntry({
               side: 'to',
               type: toType,
@@ -428,7 +444,7 @@ class UpiRojmedService {
         `UPDATE upi_transactions
          SET date = ?, entry_type = ?, amount = ?, particulars = ?,
              from_type = ?, from_id = ?, from_label = ?, from_linked_tx_id = ?,
-             to_type = ?, to_id = ?, to_label = ?, to_linked_tx_id = ?, notes = ?
+             to_type = ?, to_id = ?, to_label = ?, to_mode = ?, to_linked_tx_id = ?, notes = ?
          WHERE id = ?`,
         [
           cleanDate,
@@ -442,6 +458,7 @@ class UpiRojmedService {
           toType,
           toId,
           toLabel,
+          toMode,
           toLinkedTxId,
           cleanNotes || null,
           numId,
@@ -476,7 +493,7 @@ class UpiRojmedService {
             })
           : null;
       const toLinkedTxId =
-        entryType === 'javak'
+        toMode === 'khata'
           ? await this._createSideLinkedEntry({
               side: 'to',
               type: toType,
@@ -501,6 +518,7 @@ class UpiRojmedService {
         to_type: toType,
         to_id: toId,
         to_label: toLabel,
+        to_mode: toMode,
         to_linked_tx_id: toLinkedTxId,
         notes: cleanNotes,
       };

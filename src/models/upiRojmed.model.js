@@ -41,6 +41,7 @@ export const UpiTransactionModel = {
     to_type: "VARCHAR(30) NOT NULL DEFAULT 'general'",
     to_id: 'INT NULL',
     to_label: 'VARCHAR(255) NULL',
+    to_mode: "VARCHAR(20) NOT NULL DEFAULT 'khata'",
     to_linked_tx_id: 'INT NULL',
     notes: 'VARCHAR(255) NULL',
     created_by: 'INT NULL',
