@@ -32,8 +32,8 @@ function formatTxRow(r) {
     r.entry_type === 'javak' || r.entry_type === 'aavak'
       ? r.entry_type
       : r.from_type === 'general' && r.to_type !== 'general'
-      ? 'javak'
-      : 'aavak';
+        ? 'javak'
+        : 'aavak';
 
   return {
     id: r.id,
@@ -103,20 +103,31 @@ class UpiRojmedService {
     return r.entry_type === 'javak' && r.to_type !== 'general' && r.to_mode === 'balance';
   }
 
+  _isDirectKhataPassThrough(r) {
+    return r.entry_type !== 'javak' && r.to_type !== 'general' && r.to_mode === 'khata';
+  }
+
   _buildDailySheet(targetDate, allRows) {
-    // Opening UPI Silak: aavak (+amount), javak paid out (-amount), internal balance transfer (0 net)
+    // Opening UPI Silak:
+    // - aavak with to_mode='balance' or general: +amount
+    // - aavak with to_mode='khata' (directly paid to To's Khata): 0 net (+amount in Aavak, -amount in Javak)
+    // - javak paid out (to_mode='khata' or general): -amount
+    // - javak internal balance transfer (to_mode='balance'): 0 net
     const beforeRows = allRows.filter((r) => r.date < targetDate);
     const openingSilak = beforeRows.reduce((sum, r) => {
-      if (this._isBalanceTransfer(r)) return sum;
+      if (this._isBalanceTransfer(r) || this._isDirectKhataPassThrough(r)) return sum;
       return sum + (r.entry_type === 'javak' ? -r.amount : r.amount);
     }, 0);
 
     const dayRows = allRows.filter((r) => r.date === targetDate);
     const aavakEntries = dayRows.filter((r) => r.entry_type !== 'javak');
-    const javakEntries = dayRows.filter((r) => r.entry_type === 'javak');
+    // Include direct Khata pass-through entries in Javak too so Aavak - Javak = 0 Silak
+    const javakEntries = dayRows.filter(
+      (r) => r.entry_type === 'javak' || this._isDirectKhataPassThrough(r)
+    );
 
     const totalAavak = aavakEntries.reduce((s, e) => s + e.amount, 0);
-    // Only actual paid-out javak entries reduce Total UPI Silak (balance transfers stay inside our UPI Silak)
+    // Only actual paid-out javak (and pass-throughs) reduce Total UPI Silak; balance transfers stay inside our UPI Silak
     const totalJavakPaid = javakEntries
       .filter((e) => !this._isBalanceTransfer(e))
       .reduce((s, e) => s + e.amount, 0);
@@ -124,8 +135,8 @@ class UpiRojmedService {
     const closingSilak = totalAavakWithOpening - totalJavakPaid;
 
     // Account-wise UPI money held:
-    // - On AAVAK: money goes INTO `to` account (+amount)
-    // - On JAVAK (paid to Khata / General): money goes OUT OF `from` account (-amount)
+    // - On AAVAK (only when kept as UPI balance, NOT when directly paid to Khata): `to` gets +amount
+    // - On JAVAK (paid to Khata / General): `from` gets -amount
     // - On JAVAK (kept as UPI Balance): moves from `from` (-amount) to `to` (+amount)
     const heldMap = new Map();
     const addHeld = (type, id, label, delta) => {
@@ -146,7 +157,7 @@ class UpiRojmedService {
           if (this._isBalanceTransfer(r)) {
             addHeld(r.to_type, r.to_id, r.to_label, r.amount);
           }
-        } else {
+        } else if (!this._isDirectKhataPassThrough(r)) {
           addHeld(r.to_type, r.to_id, r.to_label, r.amount);
         }
       });
@@ -303,27 +314,27 @@ class UpiRojmedService {
     const fromLinkedTxId =
       entryType === 'aavak'
         ? await this._createSideLinkedEntry({
-            side: 'from',
-            type: fromType,
-            id: fromId,
-            amount: numAmount,
-            date: cleanDate,
-            particulars: cleanParticulars,
-            notes: cleanNotes,
-          })
+          side: 'from',
+          type: fromType,
+          id: fromId,
+          amount: numAmount,
+          date: cleanDate,
+          particulars: cleanParticulars,
+          notes: cleanNotes,
+        })
         : null;
 
     const toLinkedTxId =
       toMode === 'khata'
         ? await this._createSideLinkedEntry({
-            side: 'to',
-            type: toType,
-            id: toId,
-            amount: numAmount,
-            date: cleanDate,
-            particulars: cleanParticulars,
-            notes: cleanNotes,
-          })
+          side: 'to',
+          type: toType,
+          id: toId,
+          amount: numAmount,
+          date: cleanDate,
+          particulars: cleanParticulars,
+          notes: cleanNotes,
+        })
         : null;
 
     try {
@@ -417,27 +428,27 @@ class UpiRojmedService {
       const fromLinkedTxId =
         entryType === 'aavak'
           ? await this._createSideLinkedEntry({
-              side: 'from',
-              type: fromType,
-              id: fromId,
-              amount: numAmount,
-              date: cleanDate,
-              particulars: cleanParticulars,
-              notes: cleanNotes,
-            })
+            side: 'from',
+            type: fromType,
+            id: fromId,
+            amount: numAmount,
+            date: cleanDate,
+            particulars: cleanParticulars,
+            notes: cleanNotes,
+          })
           : null;
 
       const toLinkedTxId =
         toMode === 'khata'
           ? await this._createSideLinkedEntry({
-              side: 'to',
-              type: toType,
-              id: toId,
-              amount: numAmount,
-              date: cleanDate,
-              particulars: cleanParticulars,
-              notes: cleanNotes,
-            })
+            side: 'to',
+            type: toType,
+            id: toId,
+            amount: numAmount,
+            date: cleanDate,
+            particulars: cleanParticulars,
+            notes: cleanNotes,
+          })
           : null;
 
       await db.query(
@@ -483,26 +494,26 @@ class UpiRojmedService {
       const fromLinkedTxId =
         entryType === 'aavak'
           ? await this._createSideLinkedEntry({
-              side: 'from',
-              type: fromType,
-              id: fromId,
-              amount: numAmount,
-              date: cleanDate,
-              particulars: cleanParticulars,
-              notes: cleanNotes,
-            })
+            side: 'from',
+            type: fromType,
+            id: fromId,
+            amount: numAmount,
+            date: cleanDate,
+            particulars: cleanParticulars,
+            notes: cleanNotes,
+          })
           : null;
       const toLinkedTxId =
         toMode === 'khata'
           ? await this._createSideLinkedEntry({
-              side: 'to',
-              type: toType,
-              id: toId,
-              amount: numAmount,
-              date: cleanDate,
-              particulars: cleanParticulars,
-              notes: cleanNotes,
-            })
+            side: 'to',
+            type: toType,
+            id: toId,
+            amount: numAmount,
+            date: cleanDate,
+            particulars: cleanParticulars,
+            notes: cleanNotes,
+          })
           : null;
 
       memoryUpiTransactions[idx] = {
