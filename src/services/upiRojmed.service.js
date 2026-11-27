@@ -198,6 +198,85 @@ class UpiRojmedService {
     return this._buildDailySheet(targetDate, allRows);
   }
 
+  async getPeriodSummary({ month = '', startDate = '', endDate = '' } = {}) {
+    let rangeStart = formatLocalDate(startDate);
+    let rangeEnd = formatLocalDate(endDate);
+
+    if (month && /^\d{4}-\d{2}$/.test(month)) {
+      const [yStr, mStr] = month.split('-');
+      const lastDay = new Date(Number(yStr), Number(mStr), 0).getDate();
+      rangeStart = `${month}-01`;
+      rangeEnd = `${month}-${String(lastDay).padStart(2, '0')}`;
+    } else if (!rangeStart || !rangeEnd) {
+      const today = getTodayDate();
+      const ym = today.slice(0, 7);
+      const [yStr, mStr] = ym.split('-');
+      const lastDay = new Date(Number(yStr), Number(mStr), 0).getDate();
+      rangeStart = rangeStart || `${ym}-01`;
+      rangeEnd = rangeEnd || `${ym}-${String(lastDay).padStart(2, '0')}`;
+    }
+
+    let allRows = [];
+    try {
+      const [rows] = await db.query('SELECT * FROM upi_transactions ORDER BY date ASC, id ASC');
+      allRows = (rows || []).map(formatTxRow);
+    } catch (err) {
+      console.warn('⚠️ [UpiRojmedService getPeriodSummary DB Fallback]:', err.message);
+      allRows = memoryUpiTransactions
+        .map(formatTxRow)
+        .sort((a, b) => (a.date || '').localeCompare(b.date || '') || a.id - b.id);
+    }
+
+    const beforeRows = allRows.filter((r) => r.date < rangeStart);
+    const startOpening = beforeRows.reduce((sum, r) => {
+      if (this._isBalanceTransfer(r) || this._isDirectKhataPassThrough(r)) return sum;
+      return sum + (r.entry_type === 'javak' ? -r.amount : r.amount);
+    }, 0);
+
+    const periodRows = allRows.filter((r) => r.date >= rangeStart && r.date <= rangeEnd);
+    const datesSet = new Set(periodRows.map((r) => r.date));
+    const sortedDates = Array.from(datesSet).sort();
+
+    let runningBalance = startOpening;
+    let totalAavak = 0;
+    let totalJavak = 0;
+
+    const days = sortedDates.map((d) => {
+      const dayRows = periodRows.filter((r) => r.date === d);
+      const dayAavak = dayRows
+        .filter((r) => r.entry_type !== 'javak')
+        .reduce((s, r) => s + r.amount, 0);
+      const dayJavak = dayRows
+        .filter((r) => (r.entry_type === 'javak' || this._isDirectKhataPassThrough(r)) && !this._isBalanceTransfer(r))
+        .reduce((s, r) => s + r.amount, 0);
+
+      const dayOpen = runningBalance;
+      const dayClose = dayOpen + dayAavak - dayJavak;
+      runningBalance = dayClose;
+      totalAavak += dayAavak;
+      totalJavak += dayJavak;
+
+      return {
+        date: d,
+        opening_silak: Number(dayOpen.toFixed(2)),
+        total_aavak: Number(dayAavak.toFixed(2)),
+        total_javak: Number(dayJavak.toFixed(2)),
+        closing_silak: Number(dayClose.toFixed(2)),
+        entry_count: dayRows.length,
+      };
+    });
+
+    return {
+      start_date: rangeStart,
+      end_date: rangeEnd,
+      opening_silak: Number(startOpening.toFixed(2)),
+      total_aavak: Number(totalAavak.toFixed(2)),
+      total_javak: Number(totalJavak.toFixed(2)),
+      closing_silak: Number(runningBalance.toFixed(2)),
+      days,
+    };
+  }
+
   async _resolveEntityLabel(type, id) {
     if (type === 'general' || !id) return 'General (પોતાનું UPI)';
     const numId = Number(id);

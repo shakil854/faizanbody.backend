@@ -9,6 +9,12 @@ export const getDailyUpiRojmed = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, sheet, 'Daily UPI Rojmed retrieved successfully');
 });
 
+export const getUpiRojmedSummary = asyncHandler(async (req, res) => {
+  const { month = '', startDate = '', endDate = '' } = req.query;
+  const summary = await upiRojmedService.getPeriodSummary({ month, startDate, endDate });
+  return ApiResponse.success(res, summary, 'UPI Rojmed summary retrieved successfully');
+});
+
 export const getUpiRojmedOptions = asyncHandler(async (req, res) => {
   const options = await upiRojmedService.getUpiOptions();
   return ApiResponse.success(res, options, 'UPI Rojmed account options retrieved');

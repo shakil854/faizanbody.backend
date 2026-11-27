@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   getDailyUpiRojmed,
+  getUpiRojmedSummary,
   getUpiRojmedOptions,
   getUpiAccounts,
   createUpiAccount,
@@ -15,6 +16,7 @@ import { verifyToken, requirePermission, requireAnyPermission } from '../middlew
 const router = Router();
 
 router.get('/upi-rojmed/daily', verifyToken, requirePermission('rojmed:view'), getDailyUpiRojmed);
+router.get('/upi-rojmed/summary', verifyToken, requirePermission('rojmed:view'), getUpiRojmedSummary);
 router.get(
   '/upi-rojmed/options',
   verifyToken,
