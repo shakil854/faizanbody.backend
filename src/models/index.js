@@ -16,6 +16,7 @@ import { TruckAccountModel, TruckAccountEntryModel } from './truckAccount.model.
 import { VyapariAccountModel, VyapariAccountEntryModel } from './vyapari.model.js';
 import { RojmedEntryModel, RojmedOpeningModel } from './rojmed.model.js';
 import { UpiAccountModel, UpiTransactionModel } from './upiRojmed.model.js';
+import { DeleteRequestModel } from './deleteRequest.model.js';
 
 export const models = [
   WorkerModel,
@@ -39,6 +40,7 @@ export const models = [
   RojmedOpeningModel,
   UpiAccountModel,
   UpiTransactionModel,
+  DeleteRequestModel,
 ];
 
 export {
@@ -63,6 +65,7 @@ export {
   RojmedOpeningModel,
   UpiAccountModel,
   UpiTransactionModel,
+  DeleteRequestModel,
 };
 
 export default models;
