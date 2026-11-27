@@ -68,6 +68,22 @@ export const toggleTaskDone = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, updated, 'Task status updated');
 });
 
+export const updateOrderWorkerDates = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { section, itemKey, boxes } = req.body || {};
+
+  if (!section || !Array.isArray(boxes)) {
+    throw ApiError.badRequest('section and boxes array are required');
+  }
+
+  const updated = await orderService.updateWorkerDates(id, { section, itemKey, boxes });
+  if (!updated) {
+    throw ApiError.notFound('Order not found');
+  }
+
+  return ApiResponse.success(res, updated, 'Worker & Dates updated successfully');
+});
+
 export const deleteOrder = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const deleted = await orderService.deleteOrder(id);

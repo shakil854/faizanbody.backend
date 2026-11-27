@@ -357,6 +357,37 @@ class OrderService {
   }
 
   /**
+   * Update 3 Worker / Dates boxes for any section or finishing_work item
+   */
+  async updateWorkerDates(id, { section, itemKey = null, boxes }) {
+    const numId = Number(id);
+    const order = await this.getOrderById(numId);
+    if (!order) return null;
+
+    const normalizedBoxes = [
+      String(boxes?.[0] || ''),
+      String(boxes?.[1] || ''),
+      String(boxes?.[2] || ''),
+    ];
+
+    const updatedData = { ...order };
+
+    if (section === 'finishing_work') {
+      if (!itemKey) throw new Error('itemKey is required for finishing_work');
+      if (!updatedData.finishing_work) updatedData.finishing_work = {};
+      if (!updatedData.finishing_work[itemKey]) {
+        updatedData.finishing_work[itemKey] = { value: '', boxes: ['', '', ''], done: false };
+      }
+      updatedData.finishing_work[itemKey].boxes = normalizedBoxes;
+    } else {
+      if (!updatedData[section]) updatedData[section] = { boxes: ['', '', ''], items: {} };
+      updatedData[section].boxes = normalizedBoxes;
+    }
+
+    return this.updateOrder(numId, updatedData);
+  }
+
+  /**
    * Add uploaded photos to order
    */
   async addPhotosToOrder(id, newPhotos = []) {

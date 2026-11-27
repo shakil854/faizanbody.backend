@@ -5,6 +5,7 @@ import {
   createOrder,
   updateOrder,
   toggleTaskDone,
+  updateOrderWorkerDates,
   deleteOrder,
   uploadPhotos,
   deletePhoto,
@@ -46,6 +47,10 @@ router.route('/orders/:id')
 // Quick toggle task checkbox (permission: orders:tasks or orders:edit)
 router.route('/orders/:id/toggle-task')
   .patch(verifyToken, requirePermission('orders:tasks'), toggleTaskDone);
+
+// Quick update Worker / Dates (3 boxes) (permission: orders:worker_dates or orders:edit)
+router.route('/orders/:id/worker-dates')
+  .patch(verifyToken, requireAnyPermission('orders:worker_dates', 'orders:edit'), updateOrderWorkerDates);
 
 // Photo upload & delete for work orders
 router.route('/orders/:id/photos')
