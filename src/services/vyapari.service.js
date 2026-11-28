@@ -27,10 +27,11 @@ function formatVyapariRojmedMapping(type, partyName, firmName, particulars) {
   const cleanPart = particulars ? String(particulars).trim() : '';
   const accountLabel = firmName ? `${partyName} (${firmName})` : partyName;
   const isUdhar = type === 'udhar';
+  // Reversed for Vyapari: Vyapari Udhar -> Rojmed Aavak (Jama); Vyapari Jama -> Rojmed Javak (Udhar)
   return {
-    entry_type: isUdhar ? 'javak' : 'aavak',
+    entry_type: isUdhar ? 'aavak' : 'javak',
     sub_type: isUdhar ? 'udhar' : 'jama',
-    particulars: cleanPart ? `${accountLabel} - ${cleanPart}` : `${accountLabel} - ${isUdhar ? 'ઉધાર' : 'રોકડા જમા'}`,
+    particulars: cleanPart ? `${accountLabel} - ${cleanPart}` : `${accountLabel} - ${isUdhar ? 'ઉધાર (રોજમેળ આવક)' : 'રોકડા જમા (ચૂકવેલ)'}`,
   };
 }
 

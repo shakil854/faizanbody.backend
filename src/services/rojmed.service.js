@@ -74,21 +74,22 @@ function resolveSourceConfig({ entryType, sourceType, subType }) {
   }
 
   if (cleanSourceType === 'vyapari_account') {
+    // Reversed for Vyapari: Rojmed Aavak (Jama) -> Vyapari Udhar; Rojmed Javak (Udhar) -> Vyapari Jama
     if (cleanEntryType === 'aavak') {
       return {
         entry_type: 'aavak',
         source_type: 'vyapari_account',
-        rojmed_sub_type: 'jama',
-        vyapari_entry_type: 'jama',
-        default_label: 'રોકડા જમા',
+        rojmed_sub_type: 'udhar',
+        vyapari_entry_type: 'udhar',
+        default_label: 'રોકડા જમા (વેપારી ઉધાર)',
       };
     }
     return {
       entry_type: 'javak',
       source_type: 'vyapari_account',
-      rojmed_sub_type: 'udhar',
-      vyapari_entry_type: 'udhar',
-      default_label: 'રોકડ ખર્ચ / ઉધાર',
+      rojmed_sub_type: 'jama',
+      vyapari_entry_type: 'jama',
+      default_label: 'રોકડ ચૂકવેલ (વેપારી જમા)',
     };
   }
 

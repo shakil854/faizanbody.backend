@@ -13,6 +13,10 @@ function validateEntryPayload(body) {
     sub_type,
     date,
     notes,
+    bill_no,
+    stock_item_id,
+    stock_item_name,
+    stock_qty,
     reminder_date,
     reminder_note,
   } = body || {};
@@ -26,19 +30,21 @@ function validateEntryPayload(body) {
     throw ApiError.badRequest('Valid positive amount is required (માન્ય રકમ જરૂરી છે)');
   }
 
-  if (!['general', 'worker', 'truck_account'].includes(source_type)) {
-    throw ApiError.badRequest('Invalid source_type (must be general, worker, or truck_account)');
+  if (!['general', 'worker', 'truck_account', 'vyapari_account'].includes(source_type)) {
+    throw ApiError.badRequest('Invalid source_type (must be general, worker, truck_account, or vyapari_account)');
   }
 
   if (source_type === 'general' && (!particulars || !String(particulars).trim())) {
     throw ApiError.badRequest('Particulars / description is required (વિગત જરૂરી છે)');
   }
 
-  if ((source_type === 'worker' || source_type === 'truck_account') && (!source_id || Number(source_id) <= 0)) {
+  if ((source_type === 'worker' || source_type === 'truck_account' || source_type === 'vyapari_account') && (!source_id || Number(source_id) <= 0)) {
     throw ApiError.badRequest(
       source_type === 'worker'
         ? 'Please select a Worker (કારીગર પસંદ કરો)'
-        : 'Please select a Truck Account (ગાડી ખાતું પસંદ કરો)'
+        : source_type === 'truck_account'
+          ? 'Please select a Truck Account (ગાડી ખાતું પસંદ કરો)'
+          : 'Please select a Vyapari Account (વેપારી ખાતું પસંદ કરો)'
     );
   }
 
@@ -51,6 +57,10 @@ function validateEntryPayload(body) {
     sub_type,
     date,
     notes: notes ? String(notes).trim() : '',
+    bill_no: bill_no ? String(bill_no).trim() : null,
+    stock_item_id: stock_item_id ? Number(stock_item_id) : null,
+    stock_item_name: stock_item_name ? String(stock_item_name).trim() : null,
+    stock_qty: stock_qty !== undefined && stock_qty !== null && stock_qty !== '' ? Number(stock_qty) : null,
     reminder_date: source_type === 'general' && reminder_date ? String(reminder_date).split('T')[0].trim() : null,
     reminder_note: source_type === 'general' && reminder_note ? String(reminder_note).trim() : '',
   };

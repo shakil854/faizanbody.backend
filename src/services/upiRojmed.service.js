@@ -316,8 +316,9 @@ class UpiRojmedService {
     }
 
     if (type === 'vyapari_account') {
+      // Reversed for Vyapari: UPI From Vyapari (Aavak) -> Vyapari Udhar; UPI To Vyapari (Javak) -> Vyapari Jama
       const created = await vyapariService.addEntry(id, {
-        type: isFrom ? 'jama' : 'udhar',
+        type: isFrom ? 'udhar' : 'jama',
         amount,
         date,
         particulars: cleanNote,
